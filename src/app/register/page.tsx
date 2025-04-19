@@ -37,7 +37,7 @@ const Register = () => {
   };
 
   return (
-    <div className="flex items-center justify-center h-screen bg-purple-600">
+    <div className="flex items-center justify-center h-screen bg-gray-900">
       <form onSubmit={handleRegister} className="flex flex-col gap-4 p-6 bg-white rounded-lg shadow-xl w-80">
         {/* Title */}
         <h2 className="text-2xl font-bold text-center mb-2 text-gray-900">Register</h2>
@@ -51,7 +51,7 @@ const Register = () => {
           <input
             type="text"
             placeholder="Enter your full name"
-            className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:border-purple-500 placeholder-gray-400 text-gray-700"
+            className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:border-gray-500 placeholder-gray-400 text-gray-700"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             required
@@ -64,7 +64,7 @@ const Register = () => {
           <input
             type="email"
             placeholder="Enter your email"
-            className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:border-purple-500 placeholder-gray-400 text-gray-700"
+            className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:border-gray-500 placeholder-gray-400 text-gray-700"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -77,7 +77,7 @@ const Register = () => {
           <input
             type="password"
             placeholder="Enter your password"
-            className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:border-purple-500 placeholder-gray-400 text-gray-700"
+            className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:border-gray-500 placeholder-gray-400 text-gray-700"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -90,7 +90,7 @@ const Register = () => {
           <input
             type="password"
             placeholder="Confirm your password"
-            className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:border-purple-500 placeholder-gray-400 text-gray-700"
+            className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:border-gray-500 placeholder-gray-400 text-gray-700"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             required
@@ -98,13 +98,13 @@ const Register = () => {
         </label>
 
         {/* Register Button */}
-        <button type="submit" className="w-full bg-purple-600 text-white font-semibold py-2 rounded hover:bg-purple-700">
+        <button type="submit" className="w-full bg-gray-700 text-white font-semibold py-2 rounded hover:bg-gray-600">
           Register
         </button>
 
         {/* Navigation to Login Page */}
         <Link href="/login">
-          <button type="button" className="w-full bg-purple-600 text-white font-semibold py-2 rounded hover:bg-purple-700">
+          <button type="button" className="w-full bg-gray-700 text-white font-semibold py-2 rounded hover:bg-gray-600">
             Sign in
           </button>
         </Link>
