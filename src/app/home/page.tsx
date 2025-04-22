@@ -1,17 +1,18 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { FaCog, FaUserCircle } from "react-icons/fa";
+import { FaCog, FaUserCircle, FaEllipsisH, FaEdit, FaTrash } from "react-icons/fa";
 
 export default function HomePage() {
   const [projects, setProjects] = useState<string[]>([]);
   const [showInput, setShowInput] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [activeDropdown, setActiveDropdown] = useState<number | null>(null); // Track which dropdown is open
 
   // 1) Fetch existing projects on mount
   useEffect(() => {
-    fetch("http://localhost:8000/api/projects/")              // Client-side fetching example :contentReference[oaicite:0]{index=0}
+    fetch("http://localhost:8000/api/projects/")
       .then((res) => res.json())
       .then((data: { id: number; name: string }[]) => {
         setProjects(data.map((p) => p.name));
@@ -46,6 +47,25 @@ export default function HomePage() {
     }
   };
 
+  // 3) Handle delete project
+  const handleDeleteProject = (index: number) => {
+    const updatedProjects = [...projects];
+    updatedProjects.splice(index, 1);
+    setProjects(updatedProjects);
+    setActiveDropdown(null); // Close dropdown
+  };
+
+  // 4) Handle edit project
+  const handleEditProject = (index: number) => {
+    const newName = prompt("Enter new project name:", projects[index]);
+    if (newName) {
+      const updatedProjects = [...projects];
+      updatedProjects[index] = newName;
+      setProjects(updatedProjects);
+    }
+    setActiveDropdown(null); // Close dropdown
+  };
+
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
@@ -72,9 +92,31 @@ export default function HomePage() {
               {projects.map((project, i) => (
                 <li
                   key={i}
-                  className="mb-2 p-2 rounded hover:bg-gray-600 cursor-pointer"
+                  className="mb-2 p-2 rounded hover:bg-gray-600 cursor-pointer flex justify-between items-center"
                 >
-                  {project}
+                  <span>{project}</span>
+                  <div className="relative">
+                    <button
+                      onClick={() =>
+                        setActiveDropdown((prev) => (prev === i ? null : i))
+                      }
+                      className="text-gray-400 hover:text-white"
+                    >
+                      <FaEllipsisH />
+                    </button>
+                    {activeDropdown === i && (
+                      <div className="absolute right-[-150px] mt-2 w-32 bg-gray-300 text-black shadow-lg rounded">
+                      <button onClick={() => handleEditProject(i)} className="flex items-center gap-2 w-full px-4 py-2 hover:bg-gray-500">
+                        <FaEdit />
+                        <span>Edit</span>
+                      </button>
+                      <button onClick={() => handleDeleteProject(i)} className="flex items-center gap-2 w-full px-4 py-2 hover:bg-gray-500">
+                        <FaTrash />
+                        <span>Delete</span>
+                      </button>
+                    </div>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -95,7 +137,7 @@ export default function HomePage() {
                 placeholder="Project name"
                 value={newProjectName}
                 onChange={(e) => setNewProjectName(e.target.value)}
-                className="w-full p-2 rounded border border-gray-300 text-gray-900 placeholder-gray-500"
+                className="w-full p-2 rounded border border-gray-300 text-gray-200 placeholder-gray-500"
               />
               <button
                 onClick={handleAddProject}
