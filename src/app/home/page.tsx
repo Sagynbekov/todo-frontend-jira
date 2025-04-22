@@ -1,3 +1,4 @@
+// src/app/home/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -7,6 +8,7 @@ import {
   FaEllipsisH,
   FaEdit,
   FaTrash,
+  FaUserPlus,
 } from "react-icons/fa";
 
 type Project = {
@@ -21,7 +23,7 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeDropdown, setActiveDropdown] = useState<number | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
-  const [editingProjectName, setEditingProjectName] = useState<string>("");
+  const [editingProjectName, setEditingProjectName] = useState("");
 
   // Fetch projects on mount
   useEffect(() => {
@@ -206,9 +208,21 @@ export default function HomePage() {
 
         {/* Main Content */}
         <main className="flex-1 p-6 bg-gray-100">
-          <h1 className="text-3xl font-bold text-black">
+          <h1 className="text-3xl font-bold text-black mb-4">
             {projects[0]?.name || "No projects yet"}
           </h1>
+          {/* Search + Add User */}
+          <div className="flex items-center gap-2 mb-6">
+            <input
+              type="text"
+              placeholder="Search board"
+              className="w-64 p-2 text-sm text-black rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-md transition-all duration-200"
+            />
+            <button className="p-2 rounded-full bg-blue-500 hover:bg-blue-600 shadow-md transition-all duration-200">
+              <FaUserPlus size={18} className="text-white" />
+            </button>
+          </div>
+          {/* Future board content goes here */}
         </main>
       </div>
     </div>
