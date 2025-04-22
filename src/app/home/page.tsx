@@ -1,33 +1,42 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { FaCog, FaUserCircle, FaEllipsisH, FaEdit, FaTrash } from "react-icons/fa";
+import {
+  FaCog,
+  FaUserCircle,
+  FaEllipsisH,
+  FaEdit,
+  FaTrash,
+} from "react-icons/fa";
+
+type Project = {
+  id: number;
+  name: string;
+};
 
 export default function HomePage() {
-  const [projects, setProjects] = useState<string[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [showInput, setShowInput] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [activeDropdown, setActiveDropdown] = useState<number | null>(null); // Track which dropdown is open
+  const [activeDropdown, setActiveDropdown] = useState<number | null>(null);
+  const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
+  const [editingProjectName, setEditingProjectName] = useState<string>("");
 
-  // 1) Fetch existing projects on mount
+  // Fetch projects on mount
   useEffect(() => {
     fetch("http://localhost:8000/api/projects/")
       .then((res) => res.json())
-      .then((data: { id: number; name: string }[]) => {
-        setProjects(data.map((p) => p.name));
-        setIsLoading(false);
+      .then((data: Project[]) => {
+        setProjects(data);
       })
-      .catch((err) => {
-        console.error("Error loading projects:", err);
-        setIsLoading(false);
-      });
+      .catch((err) => console.error("Error loading projects:", err))
+      .finally(() => setIsLoading(false));
   }, []);
 
-  // 2) POST new project to backend
+  // Create new project
   const handleAddProject = async () => {
     if (!newProjectName.trim()) return;
-
     try {
       const res = await fetch("http://localhost:8000/api/projects/", {
         method: "POST",
@@ -35,8 +44,8 @@ export default function HomePage() {
         body: JSON.stringify({ name: newProjectName }),
       });
       if (res.ok) {
-        const project = await res.json(); // { id, name }
-        setProjects((prev) => [...prev, project.name]);
+        const project: Project = await res.json();
+        setProjects((prev) => [...prev, project]);
         setNewProjectName("");
         setShowInput(false);
       } else {
@@ -47,23 +56,43 @@ export default function HomePage() {
     }
   };
 
-  // 3) Handle delete project
-  const handleDeleteProject = (index: number) => {
-    const updatedProjects = [...projects];
-    updatedProjects.splice(index, 1);
-    setProjects(updatedProjects);
-    setActiveDropdown(null); // Close dropdown
+  // Delete project
+  const handleDeleteProject = async (id: number) => {
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/projects/${id}/`,
+        { method: "DELETE" }
+      );
+      if (res.ok) {
+        setProjects((prev) => prev.filter((p) => p.id !== id));
+      }
+      setActiveDropdown(null);
+    } catch (err) {
+      console.error("Delete failed", err);
+    }
   };
 
-  // 4) Handle edit project
-  const handleEditProject = (index: number) => {
-    const newName = prompt("Enter new project name:", projects[index]);
-    if (newName) {
-      const updatedProjects = [...projects];
-      updatedProjects[index] = newName;
-      setProjects(updatedProjects);
+  // Edit project
+  const handleEditProject = async (id: number) => {
+    if (!editingProjectName.trim()) return;
+    try {
+      const res = await fetch(`http://localhost:8000/api/projects/${id}/`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editingProjectName }),
+      });
+      if (res.ok) {
+        const updated: Project = await res.json();
+        setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      } else {
+        console.error("Update failed", await res.text());
+      }
+    } catch (err) {
+      console.error("Update error", err);
+    } finally {
+      setEditingProjectId(null);
+      setEditingProjectName("");
     }
-    setActiveDropdown(null); // Close dropdown
   };
 
   return (
@@ -89,32 +118,58 @@ export default function HomePage() {
             <p className="text-gray-400">Loading...</p>
           ) : (
             <ul>
-              {projects.map((project, i) => (
+              {projects.map((project) => (
                 <li
-                  key={i}
+                  key={project.id}
                   className="mb-2 p-2 rounded hover:bg-gray-600 cursor-pointer flex justify-between items-center"
                 >
-                  <span>{project}</span>
+                  {editingProjectId === project.id ? (
+                    <input
+                      type="text"
+                      value={editingProjectName}
+                      onChange={(e) => setEditingProjectName(e.target.value)}
+                      onBlur={() => handleEditProject(project.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleEditProject(project.id);
+                      }}
+                      className="w-full p-2 rounded border border-gray-300 text-gray-200 placeholder-gray-500 bg-gray-800"
+                      autoFocus
+                    />
+                  ) : (
+                    <span>{project.name}</span>
+                  )}
                   <div className="relative">
                     <button
                       onClick={() =>
-                        setActiveDropdown((prev) => (prev === i ? null : i))
+                        setActiveDropdown((prev) =>
+                          prev === project.id ? null : project.id
+                        )
                       }
                       className="text-gray-400 hover:text-white"
                     >
                       <FaEllipsisH />
                     </button>
-                    {activeDropdown === i && (
-                      <div className="absolute right-[-150px] mt-2 w-32 bg-gray-300 text-black shadow-lg rounded">
-                      <button onClick={() => handleEditProject(i)} className="flex items-center gap-2 w-full px-4 py-2 hover:bg-gray-500">
-                        <FaEdit />
-                        <span>Edit</span>
-                      </button>
-                      <button onClick={() => handleDeleteProject(i)} className="flex items-center gap-2 w-full px-4 py-2 hover:bg-gray-500">
-                        <FaTrash />
-                        <span>Delete</span>
-                      </button>
-                    </div>
+                    {activeDropdown === project.id && (
+                      <div className="absolute right-[-145px] mt-2 w-32 bg-gray-400 text-black shadow-lg rounded">
+                        <button
+                          onClick={() => {
+                            setEditingProjectId(project.id);
+                            setEditingProjectName(project.name);
+                            setActiveDropdown(null);
+                          }}
+                          className="flex items-center gap-2 w-full px-4 py-2 hover:bg-gray-500"
+                        >
+                          <FaEdit />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProject(project.id)}
+                          className="flex items-center gap-2 w-full px-4 py-2 hover:bg-gray-500"
+                        >
+                          <FaTrash />
+                          <span>Delete</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                 </li>
@@ -152,7 +207,7 @@ export default function HomePage() {
         {/* Main Content */}
         <main className="flex-1 p-6 bg-gray-100">
           <h1 className="text-3xl font-bold text-black">
-            {projects[0] || "No projects yet"}
+            {projects[0]?.name || "No projects yet"}
           </h1>
         </main>
       </div>
