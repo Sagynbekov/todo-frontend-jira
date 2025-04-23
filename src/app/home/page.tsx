@@ -1,4 +1,3 @@
-// src/app/home/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -18,6 +17,7 @@ type Project = {
 
 export default function HomePage() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null); // Track selected project
   const [showInput, setShowInput] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -31,6 +31,7 @@ export default function HomePage() {
       .then((res) => res.json())
       .then((data: Project[]) => {
         setProjects(data);
+        if (data.length > 0) setSelectedProject(data[0]); // Set the first project as default
       })
       .catch((err) => console.error("Error loading projects:", err))
       .finally(() => setIsLoading(false));
@@ -67,6 +68,7 @@ export default function HomePage() {
       );
       if (res.ok) {
         setProjects((prev) => prev.filter((p) => p.id !== id));
+        if (selectedProject?.id === id) setSelectedProject(null); // Clear selection if deleted
       }
       setActiveDropdown(null);
     } catch (err) {
@@ -86,6 +88,7 @@ export default function HomePage() {
       if (res.ok) {
         const updated: Project = await res.json();
         setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
+        if (selectedProject?.id === id) setSelectedProject(updated); // Update header if edited project is selected
       } else {
         console.error("Update failed", await res.text());
       }
@@ -123,18 +126,25 @@ export default function HomePage() {
               {projects.map((project) => (
                 <li
                   key={project.id}
-                  className="mb-2 p-2 rounded hover:bg-gray-600 cursor-pointer flex justify-between items-center"
+                  className={`mb-2 p-2 rounded hover:bg-gray-600 cursor-pointer flex justify-between items-center ${
+                    selectedProject?.id === project.id ? "bg-gray-600" : ""
+                  }`}
+                  onClick={() => setSelectedProject(project)} // Update selected project
                 >
                   {editingProjectId === project.id ? (
                     <input
                       type="text"
                       value={editingProjectName}
                       onChange={(e) => setEditingProjectName(e.target.value)}
-                      onBlur={() => handleEditProject(project.id)}
+                      onBlur={() => handleEditProject(project.id)} // Save on blur
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") handleEditProject(project.id);
+                        if (e.key === "Enter") handleEditProject(project.id); // Save on Enter
+                        if (e.key === "Escape") {
+                          setEditingProjectId(null); // Cancel on Escape
+                          setEditingProjectName("");
+                        }
                       }}
-                      className="w-full p-2 rounded border border-gray-300 text-gray-200 placeholder-gray-500 bg-gray-800"
+                      className="w-full p-1 text-sm rounded border border-gray-300 bg-gray-700 text-white"
                       autoFocus
                     />
                   ) : (
@@ -142,11 +152,12 @@ export default function HomePage() {
                   )}
                   <div className="relative">
                     <button
-                      onClick={() =>
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent triggering project selection
                         setActiveDropdown((prev) =>
                           prev === project.id ? null : project.id
-                        )
-                      }
+                        );
+                      }}
                       className="text-gray-400 hover:text-white"
                     >
                       <FaEllipsisH />
@@ -209,7 +220,7 @@ export default function HomePage() {
         {/* Main Content */}
         <main className="flex-1 p-6 bg-gray-100">
           <h1 className="text-3xl font-bold text-black mb-4">
-            {projects[0]?.name || "No projects yet"}
+            {selectedProject?.name || "No projects yet"}
           </h1>
           {/* Search + Add User */}
           <div className="flex items-center gap-2 mb-6">
