@@ -8,44 +8,88 @@ import {
   FaEdit,
   FaTrash,
   FaUserPlus,
+  FaSignOutAlt
 } from "react-icons/fa";
+import { authFetch, waitForAuth } from "../lib/auth-utils";
+import { auth } from "../lib/firebase";
+import { useRouter } from "next/navigation";
 
 type Project = {
   id: number;
   name: string;
+  user_id: string;
 };
 
 export default function HomePage() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null); // Track selected project
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [showInput, setShowInput] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [activeDropdown, setActiveDropdown] = useState<number | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [editingProjectName, setEditingProjectName] = useState("");
+  const router = useRouter();
 
-  // Fetch projects on mount
+  // Check if user is logged in
   useEffect(() => {
-    fetch("http://localhost:8000/api/projects/")
-      .then((res) => res.json())
-      .then((data: Project[]) => {
-        setProjects(data);
-        if (data.length > 0) setSelectedProject(data[0]); // Set the first project as default
-      })
-      .catch((err) => console.error("Error loading projects:", err))
-      .finally(() => setIsLoading(false));
-  }, []);
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (!user) {
+        router.push("/login");
+      } else {
+        // When auth state changes and user is logged in, fetch projects
+        fetchProjects();
+      }
+    });
+    
+    return () => unsubscribe();
+  }, [router]);
+
+  // Fetch projects function - separated to be reusable
+  const fetchProjects = async () => {
+    try {
+      // Make sure auth is initialized
+      await waitForAuth();
+      
+      if (!auth.currentUser) {
+        router.push("/login");
+        return;
+      }
+      
+      setIsLoading(true);
+      const response = await authFetch("http://localhost:8000/api/projects/");
+      if (!response.ok) {
+        throw new Error(`Error: ${response.status}`);
+      }
+      const data = await response.json();
+      setProjects(data);
+      if (data.length > 0) setSelectedProject(data[0]);
+    } catch (err) {
+      console.error("Error loading projects:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      router.push("/login");
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
+  };
 
   // Create new project
   const handleAddProject = async () => {
     if (!newProjectName.trim()) return;
     try {
-      const res = await fetch("http://localhost:8000/api/projects/", {
+      const res = await authFetch("http://localhost:8000/api/projects/", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newProjectName }),
       });
+      
       if (res.ok) {
         const project: Project = await res.json();
         setProjects((prev) => [...prev, project]);
@@ -62,13 +106,14 @@ export default function HomePage() {
   // Delete project
   const handleDeleteProject = async (id: number) => {
     try {
-      const res = await fetch(
+      const res = await authFetch(
         `http://localhost:8000/api/projects/${id}/`,
         { method: "DELETE" }
       );
+      
       if (res.ok) {
         setProjects((prev) => prev.filter((p) => p.id !== id));
-        if (selectedProject?.id === id) setSelectedProject(null); // Clear selection if deleted
+        if (selectedProject?.id === id) setSelectedProject(null);
       }
       setActiveDropdown(null);
     } catch (err) {
@@ -76,24 +121,39 @@ export default function HomePage() {
     }
   };
 
-  // Edit project
+  // Edit project - only this function needs to be updated
   const handleEditProject = async (id: number) => {
     if (!editingProjectName.trim()) return;
     try {
-      const res = await fetch(`http://localhost:8000/api/projects/${id}/`, {
+      // Log details for debugging
+      console.log(`Editing project ${id} with name: ${editingProjectName}`);
+      console.log(`Current user: ${auth.currentUser?.uid}`);
+      
+      const res = await authFetch(`http://localhost:8000/api/projects/${id}/`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: editingProjectName }),
+        body: JSON.stringify({ 
+          name: editingProjectName,
+        }),
       });
+      
       if (res.ok) {
         const updated: Project = await res.json();
+        console.log("Update successful:", updated);
         setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
-        if (selectedProject?.id === id) setSelectedProject(updated); // Update header if edited project is selected
+        if (selectedProject?.id === id) setSelectedProject(updated);
       } else {
-        console.error("Update failed", await res.text());
+        // More detailed error handling
+        const errorText = await res.text();
+        console.error(`Update failed for project ${id}: ${errorText}`);
+        console.error(`Response status: ${res.status}`);
+        
+        // Refresh projects list to ensure consistency
+        fetchProjects();
       }
     } catch (err) {
       console.error("Update error", err);
+      // Refresh projects on error
+      fetchProjects();
     } finally {
       setEditingProjectId(null);
       setEditingProjectName("");
@@ -111,6 +171,13 @@ export default function HomePage() {
         <button className="flex items-center gap-2 ml-6 hover:text-gray-400">
           <FaUserCircle size={20} />
           <span>My Cabinet</span>
+        </button>
+        <button 
+          onClick={handleLogout} 
+          className="flex items-center gap-2 ml-6 hover:text-gray-400"
+        >
+          <FaSignOutAlt size={20} />
+          <span>Logout</span>
         </button>
       </header>
 
