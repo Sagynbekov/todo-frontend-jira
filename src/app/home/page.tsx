@@ -22,6 +22,14 @@ type Project = {
   user_id: string;
 };
 
+// Add new type for columns
+type Column = {
+  id: number;
+  name: string;
+  project: number;
+  order: number;
+};
+
 export default function HomePage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -33,16 +41,9 @@ export default function HomePage() {
   const [editingProjectName, setEditingProjectName] = useState("");
   const router = useRouter();
 
-  // ←— ADDED: Kanban column state
-  const [columns, setColumns] = useState<string[]>(["Tasks"]);
-
-  // ←— ADDED: Handler to prompt & add a new column
-  const handleAddColumn = () => {
-    const name = prompt("Enter new column name");
-    if (name?.trim()) {
-      setColumns((cols) => [...cols, name.trim()]);
-    }
-  };
+  // Replace the current columns state
+  const [columns, setColumns] = useState<Column[]>([]);
+  const [isLoadingColumns, setIsLoadingColumns] = useState(false);
 
   // Check if user is logged in
   useEffect(() => {
@@ -55,6 +56,15 @@ export default function HomePage() {
     });
     return () => unsubscribe();
   }, [router]);
+
+  // Add a new useEffect to fetch columns when selected project changes
+  useEffect(() => {
+    if (selectedProject) {
+      fetchColumns(selectedProject.id);
+    } else {
+      setColumns([]);
+    }
+  }, [selectedProject]);
 
   const fetchProjects = async () => {
     try {
@@ -73,6 +83,32 @@ export default function HomePage() {
       console.error("Error loading projects:", err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Add new function to fetch columns
+  const fetchColumns = async (projectId: number) => {
+    if (!projectId) return;
+    
+    try {
+      setIsLoadingColumns(true);
+      const response = await authFetch(
+        `http://localhost:8000/api/columns/?project_id=${projectId}`
+      );
+      
+      if (!response.ok) throw new Error(`Error: ${response.status}`);
+      
+      const data = await response.json();
+      setColumns(data);
+      
+      // If no columns exist for this project, create a default "Tasks" column
+      if (data.length === 0) {
+        await handleAddColumn("Tasks", projectId);
+      }
+    } catch (err) {
+      console.error("Error loading columns:", err);
+    } finally {
+      setIsLoadingColumns(false);
     }
   };
 
@@ -95,6 +131,7 @@ export default function HomePage() {
       if (res.ok) {
         const project: Project = await res.json();
         setProjects((prev) => [...prev, project]);
+        setSelectedProject(project); // Select the newly created project
         setNewProjectName("");
         setShowInput(false);
       } else {
@@ -113,7 +150,11 @@ export default function HomePage() {
       );
       if (res.ok) {
         setProjects((prev) => prev.filter((p) => p.id !== id));
-        if (selectedProject?.id === id) setSelectedProject(null);
+        if (selectedProject?.id === id) {
+          // If we're deleting the currently selected project, select another one
+          const remainingProjects = projects.filter(p => p.id !== id);
+          setSelectedProject(remainingProjects.length > 0 ? remainingProjects[0] : null);
+        }
       }
       setActiveDropdown(null);
     } catch (err) {
@@ -154,6 +195,59 @@ export default function HomePage() {
     } finally {
       setEditingProjectId(null);
       setEditingProjectName("");
+    }
+  };
+
+  // Modified handleAddColumn function
+  const handleAddColumn = async (name?: string, projectId?: number) => {
+    if (!selectedProject && !projectId) return;
+    
+    const columnName = name || prompt("Enter new column name");
+    if (!columnName?.trim()) return;
+    
+    try {
+      const targetProjectId = projectId || selectedProject!.id;
+      
+      // Get the highest order value to place new column at the end
+      const highestOrder = columns.length > 0 
+        ? Math.max(...columns.map(col => col.order)) 
+        : -1;
+        
+      const res = await authFetch("http://localhost:8000/api/columns/", {
+        method: "POST",
+        body: JSON.stringify({ 
+          name: columnName.trim(),
+          project: targetProjectId,
+          order: highestOrder + 1
+        }),
+      });
+      
+      if (res.ok) {
+        const newColumn: Column = await res.json();
+        setColumns(prev => [...prev, newColumn]);
+      } else {
+        console.error("Failed to create column", await res.text());
+      }
+    } catch (err) {
+      console.error("Network error creating column:", err);
+    }
+  };
+
+  // Add new function to delete column
+  const handleDeleteColumn = async (columnId: number) => {
+    try {
+      const res = await authFetch(
+        `http://localhost:8000/api/columns/${columnId}/`,
+        { method: "DELETE" }
+      );
+      
+      if (res.ok) {
+        setColumns(prev => prev.filter(col => col.id !== columnId));
+      } else {
+        console.error("Failed to delete column", await res.text());
+      }
+    } catch (err) {
+      console.error("Network error deleting column:", err);
     }
   };
 
@@ -304,53 +398,81 @@ export default function HomePage() {
             </button>
           </div>
 
-
-
           {/* Kanban Board */}
-          <div className="flex gap-6 overflow-x-auto pb-8 min-h-[calc(100vh-220px)]">
-            {columns.map((col) => (
-              <div
-                key={col}
-                className="bg-white shadow-xl rounded-lg w-72 flex flex-col h-[calc(100vh-280px)] border-2 border-indigo-100 hover:border-indigo-300 transition-all duration-200 hover:transform hover:scale-102 hover:-translate-y-1"
-              >
-                <div className="p-4 font-bold border-b-2 border-indigo-100 text-indigo-800 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-t-lg flex justify-between items-center">
-                  <span className="text-lg">{col}</span>
-                  <span className="text-indigo-400 font-semibold px-2 py-1 bg-indigo-50 rounded-full text-sm">0</span>
+          {selectedProject ? (
+            <div className="flex gap-6 overflow-x-auto pb-8 min-h-[calc(100vh-220px)]">
+              {isLoadingColumns ? (
+                <div className="flex items-center justify-center w-full">
+                  <p className="text-gray-500">Loading columns...</p>
                 </div>
-                <div className="flex-1 p-4 space-y-4 overflow-y-auto custom-scrollbar">
-                  {/* Placeholder card for visual effect */}
-                  <div className="p-4 bg-white rounded-lg shadow-md hover:shadow-lg border-l-4 border-blue-400 cursor-pointer transition-all duration-200 transform hover:-translate-y-1">
-                    <p className="text-gray-700 font-medium">Sample task card</p>
-                    <div className="flex justify-between items-center mt-3">
-                      <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full">Apr 24</span>
-                      <div className="h-7 w-7 rounded-full bg-gradient-to-r from-blue-400 to-indigo-400 shadow-sm"></div>
+              ) : (
+                <>
+                  {columns.map((col) => (
+                    <div
+                      key={col.id}
+                      className="bg-white shadow-xl rounded-lg w-72 flex flex-col h-[calc(100vh-280px)] border-2 border-indigo-100 hover:border-indigo-300 transition-all duration-200 hover:transform hover:scale-102 hover:-translate-y-1"
+                    >
+                      <div className="p-4 font-bold border-b-2 border-indigo-100 text-indigo-800 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-t-lg flex justify-between items-center">
+                        <span className="text-lg">{col.name}</span>
+                        <div className="flex items-center">
+                          <span className="text-indigo-400 font-semibold px-2 py-1 bg-indigo-50 rounded-full text-sm mr-2">0</span>
+                          <button 
+                            onClick={() => handleDeleteColumn(col.id)} 
+                            className="text-red-400 hover:text-red-600 transition-colors"
+                          >
+                            <FaTrash size={14} />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex-1 p-4 space-y-4 overflow-y-auto custom-scrollbar">
+                        {/* Placeholder card for visual effect */}
+                        <div className="p-4 bg-white rounded-lg shadow-md hover:shadow-lg border-l-4 border-blue-400 cursor-pointer transition-all duration-200 transform hover:-translate-y-1">
+                          <p className="text-gray-700 font-medium">Sample task card</p>
+                          <div className="flex justify-between items-center mt-3">
+                            <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full">Apr 24</span>
+                            <div className="h-7 w-7 rounded-full bg-gradient-to-r from-blue-400 to-indigo-400 shadow-sm"></div>
+                          </div>
+                        </div>
+                        
+                        {/* Second sample card for better visualization */}
+                        <div className="p-4 bg-white rounded-lg shadow-md hover:shadow-lg border-l-4 border-purple-400 cursor-pointer transition-all duration-200 transform hover:-translate-y-1">
+                          <p className="text-gray-700 font-medium">Another sample task</p>
+                          <div className="flex justify-between items-center mt-3">
+                            <span className="text-xs font-semibold text-purple-500 bg-purple-50 px-2 py-1 rounded-full">Apr 25</span>
+                            <div className="h-7 w-7 rounded-full bg-gradient-to-r from-purple-400 to-pink-400 shadow-sm"></div>
+                          </div>
+                        </div>
+                      </div>
+                      <button className="mt-auto p-3 text-sm text-indigo-600 hover:bg-indigo-50 border-t-2 border-indigo-100 font-semibold flex items-center justify-center transition-all duration-200 rounded-b-lg">
+                        <FaPlus size={12} className="mr-2" /> Add Card
+                      </button>
                     </div>
-                  </div>
-                  
-                  {/* Second sample card for better visualization */}
-                  <div className="p-4 bg-white rounded-lg shadow-md hover:shadow-lg border-l-4 border-purple-400 cursor-pointer transition-all duration-200 transform hover:-translate-y-1">
-                    <p className="text-gray-700 font-medium">Another sample task</p>
-                    <div className="flex justify-between items-center mt-3">
-                      <span className="text-xs font-semibold text-purple-500 bg-purple-50 px-2 py-1 rounded-full">Apr 25</span>
-                      <div className="h-7 w-7 rounded-full bg-gradient-to-r from-purple-400 to-pink-400 shadow-sm"></div>
-                    </div>
-                  </div>
-                </div>
-                <button className="mt-auto p-3 text-sm text-indigo-600 hover:bg-indigo-50 border-t-2 border-indigo-100 font-semibold flex items-center justify-center transition-all duration-200 rounded-b-lg">
-                  <FaPlus size={12} className="mr-2" /> Add Card
+                  ))}
+
+                  {/* "+ New Column" button */}
+                  <button
+                    onClick={() => handleAddColumn()}
+                    className="flex items-center justify-center w-72 h-20 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg hover:from-blue-100 hover:to-indigo-100 transition-all duration-300 border-2 border-dashed border-indigo-300 text-indigo-600 hover:text-indigo-800 mt-1 shadow-md hover:shadow-lg"
+                  >
+                    <FaPlus size={18} className="mr-2" />
+                    <span className="font-bold text-lg">Add Column</span>
+                  </button>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+              <div className="text-center">
+                <p className="text-gray-500 mb-4">Select or create a project to see your board</p>
+                <button
+                  onClick={() => setShowInput(true)}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-md transition-all duration-200"
+                >
+                  Create New Project
                 </button>
               </div>
-            ))}
-
-            {/* "+ New Column" button */}
-            <button
-              onClick={handleAddColumn}
-              className="flex items-center justify-center w-72 h-20 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg hover:from-blue-100 hover:to-indigo-100 transition-all duration-300 border-2 border-dashed border-indigo-300 text-indigo-600 hover:text-indigo-800 mt-1 shadow-md hover:shadow-lg"
-            >
-              <FaPlus size={18} className="mr-2" />
-              <span className="font-bold text-lg">Add Column</span>
-            </button>
-          </div>
+            </div>
+          )}
         </main>
       </div>
     </div>
