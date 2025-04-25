@@ -10,7 +10,8 @@ import {
   FaTrash,
   FaUserPlus,
   FaSignOutAlt,
-  FaPlus,               // ←— ADDED: import plus icon
+  FaPlus,
+  FaTimes,
 } from "react-icons/fa";
 import { authFetch, waitForAuth } from "../lib/auth-utils";
 import { auth } from "../lib/firebase";
@@ -22,12 +23,21 @@ type Project = {
   user_id: string;
 };
 
-// Add new type for columns
 type Column = {
   id: number;
   name: string;
   project: number;
   order: number;
+};
+
+type Task = {
+  id: number;
+  title: string;
+  description: string;
+  column: number;
+  order: number;
+  created_at: string;
+  updated_at: string;
 };
 
 export default function HomePage() {
@@ -41,9 +51,15 @@ export default function HomePage() {
   const [editingProjectName, setEditingProjectName] = useState("");
   const router = useRouter();
 
-  // Replace the current columns state
+  // Columns state
   const [columns, setColumns] = useState<Column[]>([]);
   const [isLoadingColumns, setIsLoadingColumns] = useState(false);
+  
+  // Tasks state
+  const [tasks, setTasks] = useState<{ [key: number]: Task[] }>({});
+  const [addingTaskToColumn, setAddingTaskToColumn] = useState<number | null>(null);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   // Check if user is logged in
   useEffect(() => {
@@ -57,14 +73,24 @@ export default function HomePage() {
     return () => unsubscribe();
   }, [router]);
 
-  // Add a new useEffect to fetch columns when selected project changes
+  // Fetch columns when selected project changes
   useEffect(() => {
     if (selectedProject) {
       fetchColumns(selectedProject.id);
     } else {
       setColumns([]);
+      setTasks({});
     }
   }, [selectedProject]);
+
+  // Fetch tasks when columns change
+  useEffect(() => {
+    if (columns.length > 0) {
+      Promise.all(columns.map(col => fetchTasks(col.id)));
+    } else {
+      setTasks({});
+    }
+  }, [columns]);
 
   const fetchProjects = async () => {
     try {
@@ -86,7 +112,6 @@ export default function HomePage() {
     }
   };
 
-  // Add new function to fetch columns
   const fetchColumns = async (projectId: number) => {
     if (!projectId) return;
     
@@ -109,6 +134,24 @@ export default function HomePage() {
       console.error("Error loading columns:", err);
     } finally {
       setIsLoadingColumns(false);
+    }
+  };
+
+  const fetchTasks = async (columnId: number) => {
+    try {
+      const response = await authFetch(
+        `http://localhost:8000/api/tasks/?column_id=${columnId}`
+      );
+      
+      if (!response.ok) throw new Error(`Error: ${response.status}`);
+      
+      const data: Task[] = await response.json();
+      setTasks(prev => ({
+        ...prev,
+        [columnId]: data
+      }));
+    } catch (err) {
+      console.error(`Error loading tasks for column ${columnId}:`, err);
     }
   };
 
@@ -198,7 +241,6 @@ export default function HomePage() {
     }
   };
 
-  // Modified handleAddColumn function
   const handleAddColumn = async (name?: string, projectId?: number) => {
     if (!selectedProject && !projectId) return;
     
@@ -233,7 +275,6 @@ export default function HomePage() {
     }
   };
 
-  // Add new function to delete column
   const handleDeleteColumn = async (columnId: number) => {
     try {
       const res = await authFetch(
@@ -243,11 +284,107 @@ export default function HomePage() {
       
       if (res.ok) {
         setColumns(prev => prev.filter(col => col.id !== columnId));
+        // Also remove tasks associated with this column
+        setTasks(prev => {
+          const newTasks = {...prev};
+          delete newTasks[columnId];
+          return newTasks;
+        });
       } else {
         console.error("Failed to delete column", await res.text());
       }
     } catch (err) {
       console.error("Network error deleting column:", err);
+    }
+  };
+
+  const handleAddTask = async (columnId: number) => {
+    if (!newTaskTitle.trim()) {
+      setAddingTaskToColumn(null);
+      return;
+    }
+    
+    try {
+      // Find the highest order in the column
+      const columnTasks = tasks[columnId] || [];
+      const highestOrder = columnTasks.length > 0
+        ? Math.max(...columnTasks.map(task => task.order))
+        : -1;
+        
+      const res = await authFetch("http://localhost:8000/api/tasks/", {
+        method: "POST",
+        body: JSON.stringify({
+          title: newTaskTitle.trim(),
+          column: columnId,
+          order: highestOrder + 1,
+          description: ""
+        }),
+      });
+      
+      if (res.ok) {
+        const newTask: Task = await res.json();
+        setTasks(prev => ({
+          ...prev,
+          [columnId]: [...(prev[columnId] || []), newTask]
+        }));
+        setNewTaskTitle("");
+      } else {
+        console.error("Failed to create task", await res.text());
+      }
+    } catch (err) {
+      console.error("Network error creating task:", err);
+    } finally {
+      setAddingTaskToColumn(null);
+    }
+  };
+
+  const handleDeleteTask = async (taskId: number, columnId: number) => {
+    try {
+      const res = await authFetch(
+        `http://localhost:8000/api/tasks/${taskId}/`,
+        { method: "DELETE" }
+      );
+      
+      if (res.ok) {
+        setTasks(prev => ({
+          ...prev,
+          [columnId]: prev[columnId].filter(task => task.id !== taskId)
+        }));
+      } else {
+        console.error("Failed to delete task", await res.text());
+      }
+    } catch (err) {
+      console.error("Network error deleting task:", err);
+    }
+  };
+
+  const handleUpdateTask = async (task: Task, newData: Partial<Task>) => {
+    try {
+      const res = await authFetch(
+        `http://localhost:8000/api/tasks/${task.id}/`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            ...task,
+            ...newData
+          }),
+        }
+      );
+      
+      if (res.ok) {
+        const updatedTask: Task = await res.json();
+        setTasks(prev => ({
+          ...prev,
+          [task.column]: prev[task.column].map(t => 
+            t.id === task.id ? updatedTask : t
+          )
+        }));
+        setSelectedTask(updatedTask);
+      } else {
+        console.error("Failed to update task", await res.text());
+      }
+    } catch (err) {
+      console.error("Network error updating task:", err);
     }
   };
 
@@ -415,7 +552,9 @@ export default function HomePage() {
                       <div className="p-4 font-bold border-b-2 border-indigo-100 text-indigo-800 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-t-lg flex justify-between items-center">
                         <span className="text-lg">{col.name}</span>
                         <div className="flex items-center">
-                          <span className="text-indigo-400 font-semibold px-2 py-1 bg-indigo-50 rounded-full text-sm mr-2">0</span>
+                          <span className="text-indigo-400 font-semibold px-2 py-1 bg-indigo-50 rounded-full text-sm mr-2">
+                            {tasks[col.id]?.length || 0}
+                          </span>
                           <button 
                             onClick={() => handleDeleteColumn(col.id)} 
                             className="text-red-400 hover:text-red-600 transition-colors"
@@ -425,14 +564,81 @@ export default function HomePage() {
                         </div>
                       </div>
                       <div className="flex-1 p-4 space-y-4 overflow-y-auto custom-scrollbar">
-                      {/* Empty state - no tasks yet */}
-                      <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                        <p className="text-sm">No tasks yet</p>
-                        <p className="text-xs mt-1">Click below to add a new task</p>
+                        {!tasks[col.id] || tasks[col.id].length === 0 ? (
+                          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                            <p className="text-sm">No tasks yet</p>
+                            <p className="text-xs mt-1">Click below to add a new task</p>
+                          </div>
+                        ) : (
+                          tasks[col.id].map(task => (
+                            <div 
+                              key={task.id}
+                              className="p-4 bg-white rounded-lg shadow-md hover:shadow-lg border-l-4 border-indigo-400 cursor-pointer transition-all duration-200 transform hover:-translate-y-1 group"
+                              onClick={() => setSelectedTask(task)}
+                            >
+                              <div className="flex justify-between">
+                                <p className="text-gray-700 font-medium break-words line-clamp-2 pr-2 w-full overflow-hidden text-ellipsis">
+                                  {task.title}
+                                </p>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation(); // Prevent card click
+                                    handleDeleteTask(task.id, col.id);
+                                  }}
+                                  className="text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                                >
+                                  <FaTrash size={12} />
+                                </button>
+                              </div>
+                              <div className="flex justify-between items-center mt-3">
+                                <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full truncate max-w-[80px]">
+                                  {new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                </span>
+                                <div className="h-7 w-7 rounded-full bg-gradient-to-r from-blue-400 to-indigo-400 shadow-sm flex-shrink-0"></div>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                        {addingTaskToColumn === col.id && (
+                        <div className="p-4 bg-white rounded-lg shadow-md border-l-4 border-indigo-400 hover:border-indigo-500 transition-all duration-200">
+                          <input
+                            type="text"
+                            value={newTaskTitle}
+                            onChange={(e) => setNewTaskTitle(e.target.value)}
+                            onBlur={() => handleAddTask(col.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleAddTask(col.id);
+                              if (e.key === "Escape") setAddingTaskToColumn(null);
+                            }}
+                            placeholder="Enter task title..."
+                            className="w-full p-2.5 text-sm rounded border border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-indigo-50 text-indigo-700 placeholder-indigo-300 shadow-inner transition-all duration-200"
+                            autoFocus
+                          />
+                          <div className="flex justify-end mt-2 space-x-2">
+                            <button 
+                              onClick={() => setAddingTaskToColumn(null)}
+                              className="px-3 py-1 text-xs rounded-md text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+                            >
+                              Cancel
+                            </button>
+                            <button 
+                              onClick={() => handleAddTask(col.id)}
+                              className="px-3 py-1 text-xs rounded-md bg-indigo-500 text-white hover:bg-indigo-600 transition-colors duration-200"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       </div>
-                      </div>
-                      <button className="mt-auto p-3 text-sm text-indigo-600 hover:bg-indigo-50 border-t-2 border-indigo-100 font-semibold flex items-center justify-center transition-all duration-200 rounded-b-lg">
-                        <FaPlus size={12} className="mr-2" /> Add Card
+                      <button 
+                        onClick={() => {
+                          setAddingTaskToColumn(col.id);
+                          setNewTaskTitle("");
+                        }}
+                        className="mt-auto p-3 text-sm text-indigo-600 hover:bg-indigo-50 border-t-2 border-indigo-100 font-semibold flex items-center justify-center transition-all duration-200 rounded-b-lg"
+                      >
+                        <FaPlus size={12} className="mr-2" /> Add Task
                       </button>
                     </div>
                   ))}
@@ -463,6 +669,123 @@ export default function HomePage() {
           )}
         </main>
       </div>
+
+      {/* Task Detail Modal */}
+      {selectedTask && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
+          onClick={() => setSelectedTask(null)}
+        >
+          <div 
+            className="bg-white rounded-lg shadow-2xl w-full max-w-2xl transform transition-all"
+            onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
+          >
+            <div className="p-5 border-b border-gray-200">
+              <div className="flex justify-between items-start">
+                <h3 className="text-xl font-bold text-gray-800">{selectedTask.title}</h3>
+                <button 
+                  onClick={() => setSelectedTask(null)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <FaTimes size={20} />
+                </button>
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full">
+                  {new Date(selectedTask.created_at).toLocaleDateString('en-US', { 
+                    month: 'short', 
+                    day: 'numeric',
+                    year: 'numeric'
+                  })}
+                </span>
+                <span className="text-xs text-gray-500">
+                  Updated: {new Date(selectedTask.updated_at).toLocaleDateString('en-US', { 
+                    month: 'short', 
+                    day: 'numeric',
+                    year: 'numeric'
+                  })}
+                </span>
+              </div>
+            </div>
+            <div className="p-5">
+              <div className="mb-5">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <div className="p-4 bg-gray-50 rounded-lg min-h-[100px]">
+                  {selectedTask.description ? (
+                    <p className="text-gray-700 whitespace-pre-wrap break-words">
+                      {selectedTask.description}
+                    </p>
+                  ) : (
+                    <p className="text-gray-400 italic">No description provided</p>
+                  )}
+                </div>
+              </div>
+              
+              <div className="mb-5">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Task Details</label>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-xs text-gray-500">Created:</span>
+                      <p className="text-sm text-gray-700">
+                        {new Date(selectedTask.created_at).toLocaleString('en-US', {
+                          year: 'numeric', 
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-xs text-gray-500">Last updated:</span>
+                      <p className="text-sm text-gray-700">
+                        {new Date(selectedTask.updated_at).toLocaleString('en-US', {
+                          year: 'numeric', 
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-xs text-gray-500">Task ID:</span>
+                      <p className="text-sm text-gray-700">{selectedTask.id}</p>
+                    </div>
+                    <div>
+                      <span className="text-xs text-gray-500">Column:</span>
+                      <p className="text-sm text-gray-700">
+                        {columns.find(col => col.id === selectedTask.column)?.name || "Unknown"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-2 mt-6">
+                <button 
+                  onClick={() => setSelectedTask(null)}
+                  className="px-4 py-2 rounded-md text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+                >
+                  Close
+                </button>
+                <button 
+                  onClick={() => {
+                    const newDescription = prompt("Edit task description:", selectedTask.description);
+                    if (newDescription !== null) {
+                      handleUpdateTask(selectedTask, { description: newDescription });
+                    }
+                  }}
+                  className="px-4 py-2 rounded-md bg-indigo-500 text-white hover:bg-indigo-600 transition-colors duration-200"
+                >
+                  Edit Description
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
