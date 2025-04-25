@@ -425,23 +425,11 @@ export default function HomePage() {
                         </div>
                       </div>
                       <div className="flex-1 p-4 space-y-4 overflow-y-auto custom-scrollbar">
-                        {/* Placeholder card for visual effect */}
-                        <div className="p-4 bg-white rounded-lg shadow-md hover:shadow-lg border-l-4 border-blue-400 cursor-pointer transition-all duration-200 transform hover:-translate-y-1">
-                          <p className="text-gray-700 font-medium">Sample task card</p>
-                          <div className="flex justify-between items-center mt-3">
-                            <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full">Apr 24</span>
-                            <div className="h-7 w-7 rounded-full bg-gradient-to-r from-blue-400 to-indigo-400 shadow-sm"></div>
-                          </div>
-                        </div>
-                        
-                        {/* Second sample card for better visualization */}
-                        <div className="p-4 bg-white rounded-lg shadow-md hover:shadow-lg border-l-4 border-purple-400 cursor-pointer transition-all duration-200 transform hover:-translate-y-1">
-                          <p className="text-gray-700 font-medium">Another sample task</p>
-                          <div className="flex justify-between items-center mt-3">
-                            <span className="text-xs font-semibold text-purple-500 bg-purple-50 px-2 py-1 rounded-full">Apr 25</span>
-                            <div className="h-7 w-7 rounded-full bg-gradient-to-r from-purple-400 to-pink-400 shadow-sm"></div>
-                          </div>
-                        </div>
+                      {/* Empty state - no tasks yet */}
+                      <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                        <p className="text-sm">No tasks yet</p>
+                        <p className="text-xs mt-1">Click below to add a new task</p>
+                      </div>
                       </div>
                       <button className="mt-auto p-3 text-sm text-indigo-600 hover:bg-indigo-50 border-t-2 border-indigo-100 font-semibold flex items-center justify-center transition-all duration-200 rounded-b-lg">
                         <FaPlus size={12} className="mr-2" /> Add Card
