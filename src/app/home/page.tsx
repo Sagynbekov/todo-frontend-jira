@@ -50,6 +50,7 @@ export default function HomePage() {
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [editingProjectName, setEditingProjectName] = useState("");
   const router = useRouter();
+  const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
 
   // Columns state
   const [columns, setColumns] = useState<Column[]>([]);
@@ -388,7 +389,11 @@ export default function HomePage() {
     }
   };
 
-  return (
+  // Add this state near your other state declarations
+
+
+// Full return statement with improved task card text handling
+return (
     <div className="flex flex-col h-screen">
       {/* Header */}
       <header className="flex justify-end items-center bg-gray-700 text-white p-4 shadow-md border-b border-gray-600">
@@ -573,19 +578,31 @@ export default function HomePage() {
                           tasks[col.id].map(task => (
                             <div 
                               key={task.id}
-                              className="p-4 bg-white rounded-lg shadow-md hover:shadow-lg border-l-4 border-indigo-400 cursor-pointer transition-all duration-200 transform hover:-translate-y-1 group"
-                              onClick={() => setSelectedTask(task)}
+                              className={`p-4 bg-white rounded-lg shadow-md hover:shadow-lg border-l-4 border-indigo-400 cursor-pointer transition-all duration-200 transform hover:-translate-y-1 group ${
+                                expandedTaskId === task.id ? 'z-10 relative' : ''
+                              }`}
+                              onClick={() => {
+                                // Toggle expanded state on first click
+                                setExpandedTaskId(prev => prev === task.id ? null : task.id);
+                              }}
                             >
                               <div className="flex justify-between">
-                                <p className="text-gray-700 font-medium break-words line-clamp-2 pr-2 w-full overflow-hidden text-ellipsis">
+                                <p 
+                                  className={`text-gray-700 font-medium break-words pr-2 w-full ${
+                                    expandedTaskId === task.id 
+                                      ? '' 
+                                      : 'line-clamp-2 overflow-hidden text-ellipsis'
+                                  }`}
+                                >
                                   {task.title}
                                 </p>
                                 <button 
                                   onClick={(e) => {
-                                    e.stopPropagation(); // Prevent card click
+                                    e.stopPropagation(); // Prevent card click handling
                                     handleDeleteTask(task.id, col.id);
                                   }}
                                   className="text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                                  title="Delete task"
                                 >
                                   <FaTrash size={12} />
                                 </button>
@@ -594,7 +611,21 @@ export default function HomePage() {
                                 <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full truncate max-w-[80px]">
                                   {new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                 </span>
-                                <div className="h-7 w-7 rounded-full bg-gradient-to-r from-blue-400 to-indigo-400 shadow-sm flex-shrink-0"></div>
+                                <div className="flex items-center space-x-2">
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation(); // Prevent card click handling
+                                      setSelectedTask(task); // Open modal
+                                    }}
+                                    className="h-7 w-7 rounded-full bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors flex items-center justify-center"
+                                    title="View details"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                  </button>
+                                  <div className="h-7 w-7 rounded-full bg-gradient-to-r from-blue-400 to-indigo-400 shadow-sm flex-shrink-0"></div>
+                                </div>
                               </div>
                             </div>
                           ))
