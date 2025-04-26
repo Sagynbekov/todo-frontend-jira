@@ -51,6 +51,8 @@ export default function HomePage() {
   const [editingProjectName, setEditingProjectName] = useState("");
   const router = useRouter();
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
+  const [isAddingColumn, setIsAddingColumn] = useState(false);
+  const [newColumnName, setNewColumnName] = useState("");
 
   // Columns state
   const [columns, setColumns] = useState<Column[]>([]);
@@ -242,11 +244,13 @@ export default function HomePage() {
     }
   };
 
-  const handleAddColumn = async (name?: string, projectId?: number) => {
+  const handleAddColumn = async (projectId?: number) => {
     if (!selectedProject && !projectId) return;
     
-    const columnName = name || prompt("Enter new column name");
-    if (!columnName?.trim()) return;
+    if (!newColumnName.trim()) {
+      setIsAddingColumn(false);
+      return;
+    }
     
     try {
       const targetProjectId = projectId || selectedProject!.id;
@@ -259,7 +263,7 @@ export default function HomePage() {
       const res = await authFetch("http://localhost:8000/api/columns/", {
         method: "POST",
         body: JSON.stringify({ 
-          name: columnName.trim(),
+          name: newColumnName.trim(),
           project: targetProjectId,
           order: highestOrder + 1
         }),
@@ -268,6 +272,8 @@ export default function HomePage() {
       if (res.ok) {
         const newColumn: Column = await res.json();
         setColumns(prev => [...prev, newColumn]);
+        setNewColumnName("");
+        setIsAddingColumn(false);
       } else {
         console.error("Failed to create column", await res.text());
       }
@@ -389,11 +395,7 @@ export default function HomePage() {
     }
   };
 
-  // Add this state near your other state declarations
-
-
-// Full return statement with improved task card text handling
-return (
+  return (
     <div className="flex flex-col h-screen">
       {/* Header */}
       <header className="flex justify-end items-center bg-gray-700 text-white p-4 shadow-md border-b border-gray-600">
@@ -675,13 +677,51 @@ return (
                   ))}
 
                   {/* "+ New Column" button */}
-                  <button
-                    onClick={() => handleAddColumn()}
-                    className="flex items-center justify-center w-72 h-20 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg hover:from-blue-100 hover:to-indigo-100 transition-all duration-300 border-2 border-dashed border-indigo-300 text-indigo-600 hover:text-indigo-800 mt-1 shadow-md hover:shadow-lg"
-                  >
-                    <FaPlus size={18} className="mr-2" />
-                    <span className="font-bold text-lg">Add Column</span>
-                  </button>
+                  {!isAddingColumn ? (
+                    <button
+                      onClick={() => setIsAddingColumn(true)}
+                      className="flex items-center justify-center w-72 h-20 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg hover:from-blue-100 hover:to-indigo-100 transition-all duration-300 border-2 border-dashed border-indigo-300 text-indigo-600 hover:text-indigo-800 mt-1 shadow-md hover:shadow-lg"
+                    >
+                      <FaPlus size={18} className="mr-2" />
+                      <span className="font-bold text-lg">Add Column</span>
+                    </button>
+                  ) : (
+                    <div className="w-72 bg-white shadow-xl rounded-lg border-2 border-indigo-100 p-4 mt-1">
+                      <h3 className="text-lg font-bold text-indigo-800 mb-3">New Column</h3>
+                      <input
+                        type="text"
+                        value={newColumnName}
+                        onChange={(e) => setNewColumnName(e.target.value)}
+                        placeholder="Column name"
+                        className="w-full p-2.5 text-sm rounded border border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-indigo-50 text-indigo-700 placeholder-indigo-300 shadow-inner transition-all duration-200 mb-3"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleAddColumn();
+                          if (e.key === "Escape") {
+                            setIsAddingColumn(false);
+                            setNewColumnName("");
+                          }
+                        }}
+                      />
+                      <div className="flex justify-end space-x-2">
+                        <button 
+                          onClick={() => {
+                            setIsAddingColumn(false);
+                            setNewColumnName("");
+                          }}
+                          className="px-3 py-1.5 text-xs rounded-md text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          onClick={() => handleAddColumn()}
+                          className="px-3 py-1.5 text-xs rounded-md bg-indigo-500 text-white hover:bg-indigo-600 transition-colors duration-200"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
