@@ -53,6 +53,9 @@ export default function HomePage() {
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
   const [isAddingColumn, setIsAddingColumn] = useState(false);
   const [newColumnName, setNewColumnName] = useState("");
+  const [editingColumnId, setEditingColumnId] = useState<number | null>(null);
+  const [editingColumnName, setEditingColumnName] = useState("");
+
 
   // Columns state
   const [columns, setColumns] = useState<Column[]>([]);
@@ -130,9 +133,9 @@ export default function HomePage() {
       setColumns(data);
       
       // If no columns exist for this project, create a default "Tasks" column
-      if (data.length === 0) {
-        await handleAddColumn("Tasks", projectId);
-      }
+      // if (data.length === 0) {
+      //   await handleAddColumn("Tasks", projectId);
+      // }
     } catch (err) {
       console.error("Error loading columns:", err);
     } finally {
@@ -302,6 +305,42 @@ export default function HomePage() {
       }
     } catch (err) {
       console.error("Network error deleting column:", err);
+    }
+  };
+
+
+  const handleEditColumn = async (columnId: number) => {
+    if (!editingColumnName.trim()) {
+      setEditingColumnId(null);
+      return;
+    }
+    
+    try {
+      const res = await authFetch(
+        `http://localhost:8000/api/columns/${columnId}/`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            name: editingColumnName.trim(),
+            project: columns.find(col => col.id === columnId)?.project,
+            order: columns.find(col => col.id === columnId)?.order
+          }),
+        }
+      );
+      
+      if (res.ok) {
+        const updatedColumn: Column = await res.json();
+        setColumns(prev => 
+          prev.map(col => col.id === columnId ? updatedColumn : col)
+        );
+      } else {
+        console.error("Failed to update column", await res.text());
+      }
+    } catch (err) {
+      console.error("Network error updating column:", err);
+    } finally {
+      setEditingColumnId(null);
+      setEditingColumnName("");
     }
   };
 
@@ -557,18 +596,49 @@ export default function HomePage() {
                       className="bg-white shadow-xl rounded-lg w-72 flex flex-col h-[calc(100vh-280px)] border-2 border-indigo-100 hover:border-indigo-300 transition-all duration-200 hover:transform hover:scale-102 hover:-translate-y-1"
                     >
                       <div className="p-4 font-bold border-b-2 border-indigo-100 text-indigo-800 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-t-lg flex justify-between items-center">
-                        <span className="text-lg">{col.name}</span>
-                        <div className="flex items-center">
-                          <span className="text-indigo-400 font-semibold px-2 py-1 bg-indigo-50 rounded-full text-sm mr-2">
-                            {tasks[col.id]?.length || 0}
-                          </span>
-                          <button 
-                            onClick={() => handleDeleteColumn(col.id)} 
-                            className="text-red-400 hover:text-red-600 transition-colors"
-                          >
-                            <FaTrash size={14} />
-                          </button>
-                        </div>
+                        {editingColumnId === col.id ? (
+                          <input
+                            type="text"
+                            value={editingColumnName}
+                            onChange={(e) => setEditingColumnName(e.target.value)}
+                            onBlur={() => handleEditColumn(col.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleEditColumn(col.id);
+                              if (e.key === "Escape") {
+                                setEditingColumnId(null);
+                                setEditingColumnName("");
+                              }
+                            }}
+                            className="text-lg p-1 w-36 rounded border border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-indigo-800"
+                            autoFocus
+                          />
+                        ) : (
+                          <>
+                            <span className="text-lg">{col.name}</span>
+                            <div className="flex items-center space-x-3">
+                              <span className="text-indigo-420 font-semibold px-2 py-1 bg-indigo-50 rounded-full text-sm">
+                                {tasks[col.id]?.length || 0}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setEditingColumnId(col.id);
+                                  setEditingColumnName(col.name);
+                                }}
+                                className="text-indigo-500 hover:text-indigo-700 transition-colors"
+                                title="Edit column name"
+                              >
+                                <FaEdit size={18} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteColumn(col.id)} 
+                                className="text-red-500 hover:text-red-700 transition-colors"
+                                title="Delete column"
+                              >
+                                <FaTrash size={18} />
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                       <div className="flex-1 p-4 space-y-4 overflow-y-auto custom-scrollbar">
                         {!tasks[col.id] || tasks[col.id].length === 0 ? (
