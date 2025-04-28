@@ -12,6 +12,8 @@ import {
   FaSignOutAlt,
   FaPlus,
   FaTimes,
+  FaSearch,
+  FaUserMinus,
 } from "react-icons/fa";
 import { authFetch, waitForAuth } from "../lib/auth-utils";
 import { auth } from "../lib/firebase";
@@ -55,7 +57,13 @@ export default function HomePage() {
   const [newColumnName, setNewColumnName] = useState("");
   const [editingColumnId, setEditingColumnId] = useState<number | null>(null);
   const [editingColumnName, setEditingColumnName] = useState("");
-
+  
+  // User management state
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [userSearchEmail, setUserSearchEmail] = useState("");
+  const [searchResult, setSearchResult] = useState<{email: string, name: string, id: string} | null>(null);
+  const [addedUsers, setAddedUsers] = useState<{email: string, name: string, id: string}[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   // Columns state
   const [columns, setColumns] = useState<Column[]>([]);
@@ -576,7 +584,11 @@ export default function HomePage() {
               placeholder="Search board"
               className="w-64 p-2 text-sm text-black rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-md transition-all duration-200"
             />
-            <button className="p-2 rounded-full bg-blue-500 hover:bg-blue-600 shadow-md transition-all duration-200">
+            <button 
+              onClick={() => setShowUserModal(true)}
+              className="p-2 rounded-full bg-blue-500 hover:bg-blue-600 shadow-md transition-all duration-200"
+              title="Add user to project"
+            >
               <FaUserPlus size={18} className="text-white" />
             </button>
           </div>
@@ -923,6 +935,174 @@ export default function HomePage() {
                   className="px-4 py-2 rounded-md bg-indigo-500 text-white hover:bg-indigo-600 transition-colors duration-200"
                 >
                   Edit Description
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Management Modal */}
+      {showUserModal && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
+          onClick={() => setShowUserModal(false)}
+        >
+          <div 
+            className="bg-white rounded-lg shadow-2xl w-full max-w-md transform transition-all"
+            onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
+          >
+            <div className="p-5 border-b border-gray-200">
+              <div className="flex justify-between items-start">
+                <h3 className="text-xl font-bold text-gray-800">Add Users to Project</h3>
+                <button 
+                  onClick={() => setShowUserModal(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <FaTimes size={20} />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-5">
+              {/* Search Input */}
+              <div className="flex items-center gap-2 mb-4">
+                <input
+                  type="email"
+                  placeholder="Search user by email"
+                  value={userSearchEmail}
+                  onChange={(e) => setUserSearchEmail(e.target.value)}
+                  className="flex-1 p-2 text-sm text-black rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      // Todo: Implement search
+                      setIsSearching(true);
+                      // Mock search result for now
+                      setTimeout(() => {
+                        if (userSearchEmail.includes('@')) {
+                          setSearchResult({
+                            email: userSearchEmail,
+                            name: userSearchEmail.split('@')[0],
+                            id: Math.random().toString(36).substring(2, 9)
+                          });
+                        } else {
+                          setSearchResult(null);
+                        }
+                        setIsSearching(false);
+                      }, 800);
+                    }
+                  }}
+                />
+                <button 
+                  onClick={() => {
+                    // Todo: Implement search
+                    setIsSearching(true);
+                    // Mock search result for now
+                    setTimeout(() => {
+                      if (userSearchEmail.includes('@')) {
+                        setSearchResult({
+                          email: userSearchEmail,
+                          name: userSearchEmail.split('@')[0],
+                          id: Math.random().toString(36).substring(2, 9)
+                        });
+                      } else {
+                        setSearchResult(null);
+                      }
+                      setIsSearching(false);
+                    }, 800);
+                  }}
+                  className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                  disabled={isSearching}
+                >
+                  {isSearching ? (
+                    <div className="w-5 h-5 border-t-2 border-white rounded-full animate-spin"></div>
+                  ) : (
+                    <FaSearch size={18} />
+                  )}
+                </button>
+              </div>
+              
+              {/* Search Results */}
+              {searchResult && (
+                <div className="mb-6 p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-500">
+                        <FaUserCircle size={24} />
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-800">{searchResult.name}</h4>
+                        <p className="text-sm text-gray-500">{searchResult.email}</p>
+                      </div>
+                    </div>
+                    {addedUsers.some(user => user.id === searchResult.id) ? (
+                      <button
+                        onClick={() => {
+                          setAddedUsers(users => users.filter(user => user.id !== searchResult.id));
+                        }}
+                        className="px-3 py-1 bg-red-100 text-red-600 rounded hover:bg-red-200 transition-colors text-sm font-medium"
+                      >
+                        Remove
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setAddedUsers(users => [...users, searchResult]);
+                          setUserSearchEmail("");
+                          setSearchResult(null);
+                        }}
+                        className="px-3 py-1 bg-green-100 text-green-600 rounded hover:bg-green-200 transition-colors text-sm font-medium"
+                      >
+                        Add
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {/* No Results */}
+              {userSearchEmail && !searchResult && !isSearching && (
+                <div className="mb-6 p-3 bg-gray-50 rounded-lg text-center">
+                  <p className="text-gray-500">No user found with this email</p>
+                </div>
+              )}
+              
+              {/* Added Users List */}
+              {addedUsers.length > 0 && (
+                <div className="mt-6">
+                  <h4 className="font-medium text-gray-700 mb-2">Added Users</h4>
+                  <div className="border rounded-lg divide-y">
+                    {addedUsers.map(user => (
+                      <div key={user.id} className="flex items-center justify-between p-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-500">
+                            <FaUserCircle size={18} />
+                          </div>
+                          <div>
+                            <h4 className="font-medium text-gray-800 text-sm">{user.name}</h4>
+                            <p className="text-xs text-gray-500">{user.email}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setAddedUsers(users => users.filter(u => u.id !== user.id));
+                          }}
+                          className="text-red-500 hover:text-red-700 transition-colors"
+                        >
+                          <FaUserMinus size={18} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={() => setShowUserModal(false)}
+                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition-colors"
+                >
+                  Close
                 </button>
               </div>
             </div>
