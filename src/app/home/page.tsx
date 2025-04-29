@@ -695,13 +695,26 @@ export default function HomePage() {
               placeholder="Search board"
               className="w-64 p-2 text-sm text-black rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-md transition-all duration-200"
             />
+            
+            {/* Add User button first */}
             <button 
               onClick={() => setShowUserModal(true)}
-              className="p-2 rounded-full bg-blue-500 hover:bg-blue-600 shadow-md transition-all duration-200"
+              className="p-2 rounded-full bg-blue-500 hover:bg-blue-600 shadow-md transition-all duration-200 mr-2"
               title="Add user to project"
             >
               <FaUserPlus size={18} className="text-white" />
             </button>
+            
+            {/* User Avatars - now displaying both owner and members */}
+            <div className="flex -space-x-2 overflow-hidden">
+              {selectedProject && (
+                <>
+                  {/* First show the owner (with crown indicator) */}
+                  {auth.currentUser && (
+                    <div
+                      className="relative inline-flex items-center justify-center w-8 h-8 rounded-full border-2 border-white ring-2 ring-white shadow-md cursor-pointer transition-transform hover:scale-110 hover:z-10"
+                      style={{ backgroundColor: stringToColor(auth.currentUser.email || ''), zIndex: 99 }}
+                      title={`${auth.currentUser.email} (Owner)`}
                     >
                       <span className="text-white font-semibold text-xs">{getInitials(auth.currentUser.email || '')}</span>
                       {/* Small crown indicator for owner */}
