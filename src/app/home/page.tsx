@@ -17,12 +17,14 @@ import {
 } from "react-icons/fa";
 import { authFetch, waitForAuth } from "../lib/auth-utils";
 import { auth } from "../lib/firebase";
+import { syncFirebaseUserToBackend } from "../lib/firebase-sync";
 import { useRouter } from "next/navigation";
 
 type Project = {
   id: number;
   name: string;
   user_id: string;
+  members: string[];    // ← добавь это
 };
 
 type Column = {
@@ -75,17 +77,39 @@ export default function HomePage() {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
-  // Check if user is logged in
+  // // Check if user is logged in
+  // useEffect(() => {
+  //   const unsubscribe = auth.onAuthStateChanged((user) => {
+  //     if (!user) {
+  //       router.push("/login");
+  //     } else {
+  //       fetchProjects();
+  //     }
+  //   });
+  //   return () => unsubscribe();
+  // }, [router]);
+
+
+  // Check if user is logged in and sync with backend
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (!user) {
         router.push("/login");
       } else {
+        try {
+          // Синхронизируем текущего Firebase-пользователя с бэкендом
+          await syncFirebaseUserToBackend();
+        } catch (e) {
+          console.error("Sync error:", e);
+        }
+        // Только после успешной (или неудачной) синхронизации загружаем проекты
         fetchProjects();
       }
     });
+
     return () => unsubscribe();
   }, [router]);
+
 
   // Fetch columns when selected project changes
   useEffect(() => {
@@ -442,6 +466,55 @@ export default function HomePage() {
     }
   };
 
+  const handleSearchUser = async () => {
+    if (!userSearchEmail.trim()) return;
+    setIsSearching(true);
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/firebase-users/?email=${encodeURIComponent(userSearchEmail.trim())}`
+      );      
+      if (!res.ok) throw new Error(await res.text());
+      const users = await res.json();
+      setSearchResult(users.length ? users[0] : null);
+    } catch (e) {
+      console.error("Search error:", e);
+      setSearchResult(null);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+  
+  const handleInviteUser = async () => {
+    if (!searchResult || !selectedProject) return;
+    // Собираем новый массив email’ов:
+    const newMembers = [
+      ...(selectedProject.members || []),
+      searchResult.email
+    ];
+    try {
+      const res = await authFetch(
+        `http://localhost:8000/api/projects/${selectedProject.id}/`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ members: newMembers }),
+        }
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const updated = await res.json();
+      // Обновляем стейт
+      setProjects(prev =>
+        prev.map(p => (p.id === updated.id ? updated : p))
+      );
+      setSelectedProject(updated);
+      // Закрываем модалку и сбрасываем поиск
+      setShowUserModal(false);
+      setUserSearchEmail("");
+      setSearchResult(null);
+    } catch (e) {
+      console.error("Invite error:", e);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
@@ -573,9 +646,24 @@ export default function HomePage() {
 
         {/* Main Content */}
         <main className="flex-1 p-6 bg-gray-100 overflow-hidden flex flex-col">
-          <h1 className="text-3xl font-bold text-black mb-4">
+          {/* <h1 className="text-3xl font-bold text-black mb-4">
             {selectedProject?.name || "No projects yet"}
-          </h1>
+          </h1> */}
+
+          <div className="project-header flex items-center justify-between mb-6">
+            <h1 className="text-3xl font-bold text-black">
+              {selectedProject?.name || "No projects yet"}
+            </h1>
+            <button
+              onClick={() => setShowUserModal(true)}
+              className="flex items-center gap-2 p-2 rounded-full bg-blue-500 hover:bg-blue-600 shadow-md transition-all duration-200 text-white"
+              title="Пригласить в проект"
+            >
+              <FaUserPlus size={18} />
+              <span>Пригласить</span>
+            </button>
+          </div>
+
 
           {/* Search + Add User */}
           <div className="flex items-center gap-2 mb-6">
@@ -944,171 +1032,38 @@ export default function HomePage() {
 
       {/* User Management Modal */}
       {showUserModal && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
-          onClick={() => setShowUserModal(false)}
-        >
-          <div 
-            className="bg-white rounded-lg shadow-2xl w-full max-w-md transform transition-all"
-            onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
-          >
-            <div className="p-5 border-b border-gray-200">
-              <div className="flex justify-between items-start">
-                <h3 className="text-xl font-bold text-gray-800">Add Users to Project</h3>
-                <button 
-                  onClick={() => setShowUserModal(false)}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  <FaTimes size={20} />
+        <div className="modal-backdrop">
+          <div className="modal">
+            <h2>Пригласить в проект</h2>
+            <input
+              type="email"
+              placeholder="Email пользователя"
+              value={userSearchEmail}
+              onChange={e => setUserSearchEmail(e.target.value)}
+            />
+            <button onClick={handleSearchUser} disabled={isSearching}>
+              {isSearching ? "Ищем..." : "Найти"}
+            </button>
+
+            {searchResult && (
+              <div className="search-result">
+                <span>{searchResult.email}</span>
+                <button onClick={handleInviteUser}>
+                  Пригласить
                 </button>
               </div>
-            </div>
-            
-            <div className="p-5">
-              {/* Search Input */}
-              <div className="flex items-center gap-2 mb-4">
-                <input
-                  type="email"
-                  placeholder="Search user by email"
-                  value={userSearchEmail}
-                  onChange={(e) => setUserSearchEmail(e.target.value)}
-                  className="flex-1 p-2 text-sm text-black rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      // Todo: Implement search
-                      setIsSearching(true);
-                      // Mock search result for now
-                      setTimeout(() => {
-                        if (userSearchEmail.includes('@')) {
-                          setSearchResult({
-                            email: userSearchEmail,
-                            name: userSearchEmail.split('@')[0],
-                            id: Math.random().toString(36).substring(2, 9)
-                          });
-                        } else {
-                          setSearchResult(null);
-                        }
-                        setIsSearching(false);
-                      }, 800);
-                    }
-                  }}
-                />
-                <button 
-                  onClick={() => {
-                    // Todo: Implement search
-                    setIsSearching(true);
-                    // Mock search result for now
-                    setTimeout(() => {
-                      if (userSearchEmail.includes('@')) {
-                        setSearchResult({
-                          email: userSearchEmail,
-                          name: userSearchEmail.split('@')[0],
-                          id: Math.random().toString(36).substring(2, 9)
-                        });
-                      } else {
-                        setSearchResult(null);
-                      }
-                      setIsSearching(false);
-                    }, 800);
-                  }}
-                  className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                  disabled={isSearching}
-                >
-                  {isSearching ? (
-                    <div className="w-5 h-5 border-t-2 border-white rounded-full animate-spin"></div>
-                  ) : (
-                    <FaSearch size={18} />
-                  )}
-                </button>
-              </div>
-              
-              {/* Search Results */}
-              {searchResult && (
-                <div className="mb-6 p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-500">
-                        <FaUserCircle size={24} />
-                      </div>
-                      <div>
-                        <h4 className="font-medium text-gray-800">{searchResult.name}</h4>
-                        <p className="text-sm text-gray-500">{searchResult.email}</p>
-                      </div>
-                    </div>
-                    {addedUsers.some(user => user.id === searchResult.id) ? (
-                      <button
-                        onClick={() => {
-                          setAddedUsers(users => users.filter(user => user.id !== searchResult.id));
-                        }}
-                        className="px-3 py-1 bg-red-100 text-red-600 rounded hover:bg-red-200 transition-colors text-sm font-medium"
-                      >
-                        Remove
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setAddedUsers(users => [...users, searchResult]);
-                          setUserSearchEmail("");
-                          setSearchResult(null);
-                        }}
-                        className="px-3 py-1 bg-green-100 text-green-600 rounded hover:bg-green-200 transition-colors text-sm font-medium"
-                      >
-                        Add
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-              
-              {/* No Results */}
-              {userSearchEmail && !searchResult && !isSearching && (
-                <div className="mb-6 p-3 bg-gray-50 rounded-lg text-center">
-                  <p className="text-gray-500">No user found with this email</p>
-                </div>
-              )}
-              
-              {/* Added Users List */}
-              {addedUsers.length > 0 && (
-                <div className="mt-6">
-                  <h4 className="font-medium text-gray-700 mb-2">Added Users</h4>
-                  <div className="border rounded-lg divide-y">
-                    {addedUsers.map(user => (
-                      <div key={user.id} className="flex items-center justify-between p-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-500">
-                            <FaUserCircle size={18} />
-                          </div>
-                          <div>
-                            <h4 className="font-medium text-gray-800 text-sm">{user.name}</h4>
-                            <p className="text-xs text-gray-500">{user.email}</p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setAddedUsers(users => users.filter(u => u.id !== user.id));
-                          }}
-                          className="text-red-500 hover:text-red-700 transition-colors"
-                        >
-                          <FaUserMinus size={18} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              <div className="flex justify-end mt-6">
-                <button
-                  onClick={() => setShowUserModal(false)}
-                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition-colors"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
+            )}
+
+            <button
+              className="modal-close"
+              onClick={() => setShowUserModal(false)}
+            >
+              Закрыть
+            </button>
           </div>
         </div>
       )}
+
     </div>
   );
 }
