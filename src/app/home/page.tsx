@@ -20,6 +20,38 @@ import { auth } from "../lib/firebase";
 import { syncFirebaseUserToBackend } from "../lib/firebase-sync";
 import { useRouter } from "next/navigation";
 
+// Generate consistent color based on string (email)
+const stringToColor = (str: string) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  
+  // Choose from a set of vibrant colors good for avatars
+  const colors = [
+    '#FF5630', // Red
+    '#FF8B00', // Orange
+    '#FFAB00', // Yellow
+    '#36B37E', // Green
+    '#00B8D9', // Blue
+    '#6554C0', // Purple
+    '#6B778C', // Gray
+    '#0052CC', // Navy
+    '#8777D9', // Violet
+    '#00C7E6', // Aqua
+    '#4C9AFF', // Light blue
+    '#172B4D', // Dark blue
+  ];
+  
+  return colors[Math.abs(hash) % colors.length];
+};
+
+// Get initials from email
+const getInitials = (email: string) => {
+  if (!email) return '?';
+  return email.charAt(0).toUpperCase();
+};
+
 type Project = {
   id: number;
   name: string;
@@ -670,6 +702,35 @@ export default function HomePage() {
             >
               <FaUserPlus size={18} className="text-white" />
             </button>
+                    >
+                      <span className="text-white font-semibold text-xs">{getInitials(auth.currentUser.email || '')}</span>
+                      {/* Small crown indicator for owner */}
+                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full flex items-center justify-center" title="Project Owner">
+                        <span className="text-white text-[8px]">★</span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Then show all members */}
+                  {selectedProject.members && selectedProject.members.length > 0 ? (
+                    selectedProject.members.map((email, index) => (
+                      <div
+                        key={index}
+                        className="relative inline-flex items-center justify-center w-8 h-8 rounded-full border-2 border-white ring-2 ring-white shadow-md cursor-pointer transition-transform hover:scale-110 hover:z-10"
+                        style={{ backgroundColor: stringToColor(email), zIndex: selectedProject.members.length - index }}
+                        title={email}
+                      >
+                        <span className="text-white font-semibold text-xs">{getInitials(email)}</span>
+                      </div>
+                    ))
+                  ) : auth.currentUser ? null : (
+                    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 border-2 border-white shadow-md">
+                      <span className="text-xs">0</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
 
           {/* Kanban Board */}
@@ -907,7 +968,7 @@ export default function HomePage() {
       {/* Task Detail Modal */}
       {selectedTask && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
           onClick={() => setSelectedTask(null)}
         >
           <div 
@@ -1024,7 +1085,7 @@ export default function HomePage() {
       {/* User Management Modal */}
       {showUserModal && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
           onClick={() => setShowUserModal(false)}
         >
           <div 
