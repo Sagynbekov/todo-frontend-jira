@@ -654,16 +654,7 @@ export default function HomePage() {
             <h1 className="text-3xl font-bold text-black">
               {selectedProject?.name || "No projects yet"}
             </h1>
-            <button
-              onClick={() => setShowUserModal(true)}
-              className="flex items-center gap-2 p-2 rounded-full bg-blue-500 hover:bg-blue-600 shadow-md transition-all duration-200 text-white"
-              title="Пригласить в проект"
-            >
-              <FaUserPlus size={18} />
-              <span>Пригласить</span>
-            </button>
           </div>
-
 
           {/* Search + Add User */}
           <div className="flex items-center gap-2 mb-6">
@@ -1032,34 +1023,87 @@ export default function HomePage() {
 
       {/* User Management Modal */}
       {showUserModal && (
-        <div className="modal-backdrop">
-          <div className="modal">
-            <h2>Пригласить в проект</h2>
-            <input
-              type="email"
-              placeholder="Email пользователя"
-              value={userSearchEmail}
-              onChange={e => setUserSearchEmail(e.target.value)}
-            />
-            <button onClick={handleSearchUser} disabled={isSearching}>
-              {isSearching ? "Ищем..." : "Найти"}
-            </button>
-
-            {searchResult && (
-              <div className="search-result">
-                <span>{searchResult.email}</span>
-                <button onClick={handleInviteUser}>
-                  Пригласить
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
+          onClick={() => setShowUserModal(false)}
+        >
+          <div 
+            className="bg-white rounded-lg shadow-2xl w-full max-w-md transform transition-all"
+            onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
+          >
+            <div className="p-5 border-b border-gray-200">
+              <div className="flex justify-between items-start">
+                <h3 className="text-xl font-bold text-gray-800">Add User to Project</h3>
+                <button 
+                  onClick={() => setShowUserModal(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <FaTimes size={20} />
                 </button>
               </div>
-            )}
-
-            <button
-              className="modal-close"
-              onClick={() => setShowUserModal(false)}
-            >
-              Закрыть
-            </button>
+            </div>
+            
+            <div className="p-5">
+              <div className="mb-5">
+                <label className="block text-sm font-medium text-gray-700 mb-2">User Email</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="email"
+                    placeholder="Enter user email"
+                    value={userSearchEmail}
+                    onChange={(e) => setUserSearchEmail(e.target.value)}
+                    className="flex-1 p-2.5 text-sm rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-700"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSearchUser();
+                    }}
+                  />
+                  <button 
+                    onClick={handleSearchUser}
+                    disabled={isSearching || !userSearchEmail.trim()}
+                    className="p-2.5 rounded-md bg-indigo-500 text-white hover:bg-indigo-600 transition-colors duration-200 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center"
+                  >
+                    {isSearching ? (
+                      <span className="animate-pulse">Searching...</span>
+                    ) : (
+                      <><FaSearch size={16} className="mr-1" /> Search</>
+                    )}
+                  </button>
+                </div>
+              </div>
+              
+              {searchResult ? (
+                <div className="mb-5 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h4 className="font-medium text-gray-800">{searchResult.email}</h4>
+                    </div>
+                    <button 
+                      onClick={handleInviteUser}
+                      className="px-3 py-1.5 rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-colors duration-200 flex items-center gap-1"
+                    >
+                      <FaUserPlus size={14} /> Add to Project
+                    </button>
+                  </div>
+                </div>
+              ) : userSearchEmail.trim() && !isSearching ? (
+                <div className="text-center p-4 bg-gray-50 rounded-lg">
+                  <p className="text-gray-500">No user found with that email</p>
+                </div>
+              ) : null}
+              
+              <div className="flex justify-end space-x-2 mt-6">
+                <button 
+                  onClick={() => {
+                    setShowUserModal(false);
+                    setUserSearchEmail("");
+                    setSearchResult(null);
+                  }}
+                  className="px-4 py-2 rounded-md text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
