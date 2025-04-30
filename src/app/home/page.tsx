@@ -19,6 +19,7 @@ import { authFetch, waitForAuth } from "../lib/auth-utils";
 import { auth } from "../lib/firebase";
 import { syncFirebaseUserToBackend } from "../lib/firebase-sync";
 import { useRouter } from "next/navigation";
+import { TaskCreatorAvatar } from '../../components/TaskCreatorAvatar';
 
 // Generate consistent color based on string (email)
 const stringToColor = (str: string) => {
@@ -74,6 +75,8 @@ type Task = {
   order: number;
   created_at: string;
   updated_at: string;
+  creator_id?: string;
+  creator_email?: string;
 };
 
 export default function HomePage() {
@@ -108,6 +111,17 @@ export default function HomePage() {
   const [addingTaskToColumn, setAddingTaskToColumn] = useState<number | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+
+
+  const [currentPhotoURL, setCurrentPhotoURL] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged(u => {
+      setCurrentPhotoURL(u?.photoURL || null);
+    });
+    return () => unsubscribe();
+  }, []);
+
 
   // // Check if user is logged in
   // useEffect(() => {
@@ -427,7 +441,9 @@ export default function HomePage() {
           title: newTaskTitle.trim(),
           column: columnId,
           order: highestOrder + 1,
-          description: ""
+          description: "",
+          creator_id: auth.currentUser?.uid,
+          creator_email: auth.currentUser?.email
         }),
       });
       
@@ -887,22 +903,11 @@ export default function HomePage() {
                                     {new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                   </span>
                                   <div className="flex items-center space-x-2">
-                                    {/* Task owner avatar with the same color as in user list */}
-                                    <div 
-                                      className="h-7 w-7 rounded-full flex items-center justify-center shadow-md border border-white" 
-                                      style={{ backgroundColor: selectedProject && selectedProject.user_id === auth.currentUser?.uid ? 
-                                        stringToColor(auth.currentUser?.email || '') : 
-                                        stringToColor(selectedProject?.members[0] || auth.currentUser?.email || '') 
-                                      }}
-                                      title={selectedProject?.user_id === auth.currentUser?.uid ? 
-                                        `${auth.currentUser?.email} (Owner)` : (selectedProject?.members[0] || "")}
-                                    >
-                                      <span className="text-white text-xs font-semibold">
-                                        {selectedProject?.user_id === auth.currentUser?.uid ? 
-                                          getInitials(auth.currentUser?.email || '') : 
-                                          getInitials(selectedProject?.members[0] || '')}
-                                      </span>
-                                    </div>
+                                    {/* Task owner avatar - use the dedicated component */}
+                                    <TaskCreatorAvatar 
+                                      creatorEmail={task.creator_email}
+                                      currentPhotoURL={auth.currentUser?.photoURL || null}
+                                    />
                                     
                                     {/* Task detail info button */}
                                     <button 

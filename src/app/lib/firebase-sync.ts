@@ -2,7 +2,7 @@ import { auth } from "./firebase";
 
 /**
  * При каждом успешном логине в Firebase вызывает 
- * создание пользователя в вашем Django-бэкенде.
+ * создание пользователя в вашем Django-бэкенде или обновление существующего.
  */
 export async function syncFirebaseUserToBackend(): Promise<void> {
   const user = auth.currentUser;
@@ -14,23 +14,50 @@ export async function syncFirebaseUserToBackend(): Promise<void> {
   // принудительно обновляем токен, чтобы получить свежий
   const token = await user.getIdToken(true);
 
-  const response = await fetch("http://localhost:8000/api/firebase-users/", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      // если бэкенд проверяет JWT, передаём токен
-      "Authorization": `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      firebase_user_id: user.uid,
-      email: user.email,
-    }),
-  });
+  try {
+    // Сначала проверяем, существует ли пользователь
+    const checkResponse = await fetch(
+      `http://localhost:8000/api/firebase-users/?email=${encodeURIComponent(user.email || '')}`,
+      {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+      }
+    );
 
-  if (!response.ok) {
-    const text = await response.text();
-    console.error("Ошибка синхронизации FirebaseUser:", response.status, text);
-    throw new Error(`Sync failed: ${response.status}`);
+    if (checkResponse.ok) {
+      const users = await checkResponse.json();
+      
+      // Пользователь уже существует, не нужно создавать нового
+      if (users.length > 0) {
+        console.log("Пользователь уже существует в бэкенде, синхронизация не требуется");
+        return;
+      }
+    }
+
+    // Если пользователь не найден, создаем нового
+    const createResponse = await fetch("http://localhost:8000/api/firebase-users/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        firebase_user_id: user.uid,
+        email: user.email,
+      }),
+    });
+
+    if (!createResponse.ok) {
+      const text = await createResponse.text();
+      console.error("Ошибка синхронизации FirebaseUser:", createResponse.status, text);
+      throw new Error(`Sync failed: ${createResponse.status}`);
+    }
+    
+    console.log("Пользователь успешно синхронизирован с бэкендом");
+  } catch (error) {
+    console.error("Ошибка при синхронизации пользователя:", error);
+    // Не выбрасываем ошибку, чтобы не блокировать пользовательский опыт
   }
 }
 
@@ -43,4 +70,3 @@ export async function findUserByEmail(email: string) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as { firebase_user_id: string; email: string }[];
   }
-  

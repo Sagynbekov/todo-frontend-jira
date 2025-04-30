@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { auth } from "../lib/firebase";
+import { auth, storage } from "../lib/firebase";
 import { authFetch } from "../lib/auth-utils";
-import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaEdit, FaSave, FaArrowLeft, FaSignOutAlt, FaChartBar, FaTasks, FaClipboardCheck } from "react-icons/fa";
+import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaEdit, FaSave, FaArrowLeft, FaSignOutAlt, FaChartBar, FaTasks, FaClipboardCheck, FaCamera, FaCheck, FaTimes } from "react-icons/fa";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { updateProfile } from "firebase/auth";
 
 interface UserStats {
   totalProjects: number;
@@ -23,12 +25,26 @@ export default function MyCabinetPage() {
     totalTasks: 0,
     completedTasks: 0,
   });
+  const [profilePhotoURL, setProfilePhotoURL] = useState<string | null>(null);
+  const [isChangingPhoto, setIsChangingPhoto] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewURL, setPreviewURL] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((currentUser) => {
       if (currentUser) {
         setUser(currentUser);
         setDisplayName(currentUser.displayName || currentUser.email?.split('@')[0] || "User");
+        
+        // Make sure we're handling the photo URL correctly
+        if (currentUser.photoURL) {
+          console.log("Current photo URL:", currentUser.photoURL);
+          setProfilePhotoURL(currentUser.photoURL);
+        } else {
+          setProfilePhotoURL(null);
+        }
+        
         fetchUserStats();
       } else {
         router.push("/login");
@@ -69,7 +85,7 @@ export default function MyCabinetPage() {
     }
 
     try {
-      await user.updateProfile({
+      await updateProfile(user, {
         displayName: displayName.trim()
       });
       
@@ -78,6 +94,88 @@ export default function MyCabinetPage() {
       setIsEditingName(false);
     } catch (error) {
       console.error("Error updating display name:", error);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setSelectedFile(file);
+      
+      // Create a preview URL
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (e.target?.result) {
+          setPreviewURL(e.target.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleAvatarUpload = async () => {
+    if (!selectedFile || !user) return;
+
+    try {
+      // Create a FormData object to send the file to the backend
+      const formData = new FormData();
+      formData.append('profile_photo', selectedFile);
+      formData.append('email', user.email || '');
+      
+      // Send the profile photo to the Django backend
+      const response = await fetch(`http://localhost:8000/api/profile-photo/?user_id=${user.uid}`, {
+        method: 'PUT',
+        body: formData,
+        // No Content-Type header with FormData
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to upload profile photo: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Get the complete photo URL - make sure it's absolute
+      const photoURL = data.profile_photo.startsWith('http') 
+        ? data.profile_photo 
+        : `http://localhost:8000${data.profile_photo}`;
+      
+      console.log("Profile photo uploaded successfully, URL:", photoURL);
+      
+      // Update user profile with the new photo URL in Firebase
+      await updateProfile(user, {
+        photoURL: photoURL
+      });
+      
+      // Update local state
+      setProfilePhotoURL(photoURL);
+      setIsChangingPhoto(false);
+      setSelectedFile(null);
+      setPreviewURL(null);
+      
+      // Refresh user data
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        // Force a refresh to ensure we get updated data
+        await currentUser.reload();
+        setUser(auth.currentUser);
+      }
+      
+    } catch (error) {
+      console.error("Error uploading avatar:", error);
+      alert("Failed to upload avatar. Please try again.");
+    }
+  };
+
+  const cancelPhotoChange = () => {
+    setIsChangingPhoto(false);
+    setSelectedFile(null);
+    setPreviewURL(null);
+  };
+
+  const triggerFileInput = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
     }
   };
 
@@ -135,8 +233,78 @@ export default function MyCabinetPage() {
           {/* Profile Header */}
           <div className="bg-gradient-to-r from-indigo-500 to-purple-600 px-8 py-12 text-white">
             <div className="flex flex-col md:flex-row items-center md:items-start gap-8">
-              <div className="bg-white p-2 rounded-full shadow-lg">
-                <FaUserCircle size={100} className="text-indigo-600" />
+              <div className="relative">
+                {isChangingPhoto ? (
+                  <div className="bg-white p-2 rounded-full shadow-lg relative">
+                    {previewURL ? (
+                      <img 
+                        src={previewURL} 
+                        alt="Avatar Preview" 
+                        className="w-28 h-28 rounded-full object-cover"
+                      />
+                    ) : (
+                      <FaUserCircle size={100} className="text-indigo-600" />
+                    )}
+                    
+                    <div className="absolute inset-0 rounded-full flex flex-col items-center justify-center bg-black/40">
+                      <button
+                        onClick={triggerFileInput}
+                        className="bg-transparent hover:bg-white/20 p-2 rounded-full transition-colors mb-2"
+                      >
+                        <FaCamera size={24} className="text-white" />
+                      </button>
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileSelect}
+                        className="hidden"
+                        accept="image/*"
+                      />
+                      
+                      <div className="flex gap-2">
+                        {selectedFile && (
+                          <button
+                            onClick={handleAvatarUpload}
+                            className="bg-green-500 hover:bg-green-600 p-1 rounded-full transition-colors"
+                          >
+                            <FaCheck size={14} className="text-white" />
+                          </button>
+                        )}
+                        <button
+                          onClick={cancelPhotoChange}
+                          className="bg-red-500 hover:bg-red-600 p-1 rounded-full transition-colors"
+                        >
+                          <FaTimes size={14} className="text-white" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div 
+                    className="bg-white p-2 rounded-full shadow-lg relative cursor-pointer group"
+                    onClick={() => setIsChangingPhoto(true)}
+                  >
+                    {profilePhotoURL ? (
+                      <img 
+                        src={profilePhotoURL} 
+                        alt="User Avatar" 
+                        className="w-28 h-28 rounded-full object-cover"
+                        onError={(e) => {
+                          console.error("Image failed to load:", profilePhotoURL);
+                          // Fallback to default icon on error
+                          e.currentTarget.style.display = 'none';
+                          setProfilePhotoURL(null);
+                        }}
+                      />
+                    ) : (
+                      <FaUserCircle size={100} className="text-indigo-600" />
+                    )}
+                    
+                    <div className="absolute inset-0 rounded-full flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <FaCamera size={24} className="text-white" />
+                    </div>
+                  </div>
+                )}
               </div>
               
               <div className="text-center md:text-left">
