@@ -547,6 +547,36 @@ export default function HomePage() {
     }
   };
 
+  const handleRemoveUser = async (emailToRemove: string) => {
+    if (!selectedProject) return;
+    
+    // Filter out the user to remove
+    const newMembers = selectedProject.members.filter(email => email !== emailToRemove);
+    
+    try {
+      const res = await authFetch(
+        `http://localhost:8000/api/projects/${selectedProject.id}/`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ members: newMembers }),
+        }
+      );
+      
+      if (!res.ok) throw new Error(await res.text());
+      
+      const updated = await res.json();
+      
+      // Update state
+      setProjects(prev =>
+        prev.map(p => (p.id === updated.id ? updated : p))
+      );
+      setSelectedProject(updated);
+      
+    } catch (e) {
+      console.error("Error removing user:", e);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
@@ -696,31 +726,35 @@ export default function HomePage() {
               className="w-64 p-2 text-sm text-black rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-md transition-all duration-200"
             />
             
-            {/* Add User button first */}
-            <button 
-              onClick={() => setShowUserModal(true)}
-              className="p-2 rounded-full bg-blue-500 hover:bg-blue-600 shadow-md transition-all duration-200 mr-2"
-              title="Add user to project"
-            >
-              <FaUserPlus size={18} className="text-white" />
-            </button>
+            {/* Add User button - only visible to project owner */}
+            {selectedProject && selectedProject.user_id === auth.currentUser?.uid ? (
+              <button 
+                onClick={() => setShowUserModal(true)}
+                className="p-2 rounded-full bg-blue-500 hover:bg-blue-600 shadow-md transition-all duration-200 mr-2"
+                title="Add user to project"
+              >
+                <FaUserPlus size={18} className="text-white" />
+              </button>
+            ) : null}
             
-            {/* User Avatars - now displaying both owner and members */}
+            {/* User Avatars - displaying both owner and members */}
             <div className="flex -space-x-2 overflow-hidden">
               {selectedProject && (
                 <>
-                  {/* First show the owner (with crown indicator) */}
+                  {/* First show the owner with correct owner check */}
                   {auth.currentUser && (
                     <div
                       className="relative inline-flex items-center justify-center w-8 h-8 rounded-full border-2 border-white ring-2 ring-white shadow-md cursor-pointer transition-transform hover:scale-110 hover:z-10"
                       style={{ backgroundColor: stringToColor(auth.currentUser.email || ''), zIndex: 99 }}
-                      title={`${auth.currentUser.email} (Owner)`}
+                      title={`${auth.currentUser.email} ${selectedProject.user_id === auth.currentUser.uid ? '(Owner)' : ''}`}
                     >
                       <span className="text-white font-semibold text-xs">{getInitials(auth.currentUser.email || '')}</span>
-                      {/* Small crown indicator for owner */}
-                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full flex items-center justify-center" title="Project Owner">
-                        <span className="text-white text-[8px]">★</span>
-                      </div>
+                      {/* Crown indicator only for actual owner */}
+                      {selectedProject.user_id === auth.currentUser.uid && (
+                        <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full flex items-center justify-center" title="Project Owner">
+                          <span className="text-white text-[8px]">★</span>
+                        </div>
+                      )}
                     </div>
                   )}
                   
@@ -850,19 +884,36 @@ export default function HomePage() {
                                     {new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                   </span>
                                   <div className="flex items-center space-x-2">
+                                    {/* Task owner avatar with the same color as in user list */}
+                                    <div 
+                                      className="h-7 w-7 rounded-full flex items-center justify-center shadow-md border border-white" 
+                                      style={{ backgroundColor: selectedProject && selectedProject.user_id === auth.currentUser?.uid ? 
+                                        stringToColor(auth.currentUser?.email || '') : 
+                                        stringToColor(selectedProject?.members[0] || auth.currentUser?.email || '') 
+                                      }}
+                                      title={selectedProject?.user_id === auth.currentUser?.uid ? 
+                                        `${auth.currentUser?.email} (Owner)` : (selectedProject?.members[0] || "")}
+                                    >
+                                      <span className="text-white text-xs font-semibold">
+                                        {selectedProject?.user_id === auth.currentUser?.uid ? 
+                                          getInitials(auth.currentUser?.email || '') : 
+                                          getInitials(selectedProject?.members[0] || '')}
+                                      </span>
+                                    </div>
+                                    
+                                    {/* Task detail info button */}
                                     <button 
                                       onClick={(e) => {
                                         e.stopPropagation(); // Prevent card click handling
                                         setSelectedTask(task); // Open modal
                                       }}
-                                      className="h-7 w-7 rounded-full bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors flex items-center justify-center"
+                                      className="h-7 w-7 rounded-full bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors flex items-center justify-center shadow-sm"
                                       title="View details"
                                     >
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                       </svg>
                                     </button>
-                                    <div className="h-7 w-7 rounded-full bg-gradient-to-r from-blue-400 to-indigo-400 shadow-sm flex-shrink-0"></div>
                                   </div>
                                 </div>
                               </div>
@@ -1002,15 +1053,13 @@ export default function HomePage() {
                 <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full">
                   {new Date(selectedTask.created_at).toLocaleDateString('en-US', { 
                     month: 'short', 
-                    day: 'numeric',
-                    year: 'numeric'
+                    day: 'numeric'
                   })}
                 </span>
                 <span className="text-xs text-gray-500">
                   Updated: {new Date(selectedTask.updated_at).toLocaleDateString('en-US', { 
                     month: 'short', 
-                    day: 'numeric',
-                    year: 'numeric'
+                    day: 'numeric'
                   })}
                 </span>
               </div>
@@ -1107,7 +1156,7 @@ export default function HomePage() {
           >
             <div className="p-5 border-b border-gray-200">
               <div className="flex justify-between items-start">
-                <h3 className="text-xl font-bold text-gray-800">Add User to Project</h3>
+                <h3 className="text-xl font-bold text-gray-800">Manage Project Users</h3>
                 <button 
                   onClick={() => setShowUserModal(false)}
                   className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -1118,52 +1167,140 @@ export default function HomePage() {
             </div>
             
             <div className="p-5">
-              <div className="mb-5">
-                <label className="block text-sm font-medium text-gray-700 mb-2">User Email</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="email"
-                    placeholder="Enter user email"
-                    value={userSearchEmail}
-                    onChange={(e) => setUserSearchEmail(e.target.value)}
-                    className="flex-1 p-2.5 text-sm rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-700"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleSearchUser();
-                    }}
-                  />
-                  <button 
-                    onClick={handleSearchUser}
-                    disabled={isSearching || !userSearchEmail.trim()}
-                    className="p-2.5 rounded-md bg-indigo-500 text-white hover:bg-indigo-600 transition-colors duration-200 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center"
-                  >
-                    {isSearching ? (
-                      <span className="animate-pulse">Searching...</span>
-                    ) : (
-                      <><FaSearch size={16} className="mr-1" /> Search</>
-                    )}
-                  </button>
-                </div>
-              </div>
-              
-              {searchResult ? (
-                <div className="mb-5 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <h4 className="font-medium text-gray-800">{searchResult.email}</h4>
+              {/* Current Project Users Section */}
+              {selectedProject && (
+                <div className="mb-5">
+                  <h4 className="text-md font-semibold text-gray-700 mb-3">Current Users</h4>
+                  
+                  {/* Project Owner - Now correctly checking against project.user_id */}
+                  {auth.currentUser && (
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg mb-2 border border-gray-200">
+                      <div className="flex items-center">
+                        <div 
+                          className="w-8 h-8 rounded-full flex items-center justify-center mr-3"
+                          style={{ backgroundColor: stringToColor(auth.currentUser.email || '') }}
+                        >
+                          <span className="text-white font-semibold text-xs">{getInitials(auth.currentUser.email || '')}</span>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">{auth.currentUser.email}</p>
+                          {selectedProject.user_id === auth.currentUser.uid ? (
+                            <span className="text-xs text-yellow-600 bg-yellow-100 px-2 py-0.5 rounded-full">Owner</span>
+                          ) : (
+                            <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">Member</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <button 
-                      onClick={handleInviteUser}
-                      className="px-3 py-1.5 rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-colors duration-200 flex items-center gap-1"
-                    >
-                      <FaUserPlus size={14} /> Add to Project
-                    </button>
+                  )}
+                  
+                  {/* Project Members */}
+                  {selectedProject.members && selectedProject.members.length > 0 ? (
+                    selectedProject.members.map((email, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg mb-2 border border-gray-200">
+                        <div className="flex items-center">
+                          <div 
+                            className="w-8 h-8 rounded-full flex items-center justify-center mr-3"
+                            style={{ backgroundColor: stringToColor(email) }}
+                          >
+                            <span className="text-white font-semibold text-xs">{getInitials(email)}</span>
+                          </div>
+                          <p className="text-sm font-medium text-gray-800">{email}</p>
+                        </div>
+                        {/* Only show remove button to project owner */}
+                        {selectedProject.user_id === auth.currentUser?.uid && (
+                          <button 
+                            onClick={() => handleRemoveUser(email)}
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                            title="Remove user"
+                          >
+                            <FaUserMinus size={18} />
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-gray-500 italic text-center py-2">No additional users in this project</p>
+                  )}
+                </div>
+              )}
+              
+              {/* Only show Add New User section to project owner */}
+              {selectedProject && selectedProject.user_id === auth.currentUser?.uid ? (
+                <>
+                  {/* Divider */}
+                  <div className="border-t border-gray-200 my-4"></div>
+                  
+                  {/* Add New User Section */}
+                  <div className="mb-5">
+                    <h4 className="text-md font-semibold text-gray-700 mb-3">Add New User</h4>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">User Email</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="email"
+                        placeholder="Enter user email"
+                        value={userSearchEmail}
+                        onChange={(e) => setUserSearchEmail(e.target.value)}
+                        className="flex-1 p-2.5 text-sm rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-700"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSearchUser();
+                        }}
+                      />
+                      <button 
+                        onClick={handleSearchUser}
+                        disabled={isSearching || !userSearchEmail.trim()}
+                        className="p-2.5 rounded-md bg-indigo-500 text-white hover:bg-indigo-600 transition-colors duration-200 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center"
+                      >
+                        {isSearching ? (
+                          <span className="animate-pulse">Searching...</span>
+                        ) : (
+                          <><FaSearch size={16} className="mr-1" /> Search</>
+                        )}
+                      </button>
+                    </div>
                   </div>
+                  
+                  {searchResult ? (
+                    <div className="mb-5 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center">
+                          <div 
+                            className="w-8 h-8 rounded-full flex items-center justify-center mr-3"
+                            style={{ backgroundColor: stringToColor(searchResult.email) }}
+                          >
+                            <span className="text-white font-semibold text-xs">{getInitials(searchResult.email)}</span>
+                          </div>
+                          <h4 className="font-medium text-gray-800">{searchResult.email}</h4>
+                        </div>
+                        {/* Check if user is already a member and show appropriate button */}
+                        {selectedProject.members.includes(searchResult.email) ? (
+                          <button 
+                            onClick={() => handleRemoveUser(searchResult.email)}
+                            className="px-3 py-1.5 rounded-md bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 flex items-center gap-1"
+                          >
+                            <FaUserMinus size={14} /> Remove
+                          </button>
+                        ) : (
+                          <button 
+                            onClick={handleInviteUser}
+                            className="px-3 py-1.5 rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-colors duration-200 flex items-center gap-1"
+                          >
+                            <FaUserPlus size={14} /> Add
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : userSearchEmail.trim() && !isSearching ? (
+                    <div className="text-center p-4 bg-gray-50 rounded-lg">
+                      <p className="text-gray-500">No user found with that email</p>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="text-center p-4 bg-gray-50 rounded-lg mt-4">
+                  <p className="text-gray-500">Only the project owner can add or remove users</p>
                 </div>
-              ) : userSearchEmail.trim() && !isSearching ? (
-                <div className="text-center p-4 bg-gray-50 rounded-lg">
-                  <p className="text-gray-500">No user found with that email</p>
-                </div>
-              ) : null}
+              )}
               
               <div className="flex justify-end space-x-2 mt-6">
                 <button 
