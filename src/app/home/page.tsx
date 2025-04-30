@@ -585,7 +585,10 @@ export default function HomePage() {
           <FaCog size={20} />
           <span>Settings</span>
         </button>
-        <button className="flex items-center gap-2 ml-6 hover:text-gray-400">
+        <button 
+          onClick={() => router.push("/myCabinet")}
+          className="flex items-center gap-2 ml-6 hover:text-gray-400"
+        >
           <FaUserCircle size={20} />
           <span>My Cabinet</span>
         </button>
