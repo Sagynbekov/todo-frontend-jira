@@ -33,67 +33,56 @@ export const TaskCreatorAvatar: React.FC<Props> = ({ creatorEmail, currentPhotoU
 
   // Основная логика загрузки аватара
   useEffect(() => {
+    console.log("Avatar:", { creatorEmail, currentPhotoURL, isCurrentUser });
+  
     setIsLoading(true);
     setHasError(false);
-    
-    // Первый приоритет - если это текущий пользователь и у него есть фото
-    if (isCurrentUser && auth.currentUser?.photoURL) {
-      setProfilePhoto(auth.currentUser.photoURL);
-      setIsLoading(false);
-      return;
-    }
-    
-    // Второй приоритет - фото из props (если передано)
-    if (currentPhotoURL) {
+  
+    // 1) Если это текущий юзер — сразу ставим его avatar из пропса
+    if (isCurrentUser) {
       setProfilePhoto(currentPhotoURL);
       setIsLoading(false);
       return;
     }
-
+  
+    // 2) Если нет email автора — выходим, будет фолбэк
     if (!creatorEmail) {
+      setProfilePhoto(null);
       setIsLoading(false);
       return;
     }
-
-    // Третий приоритет - запрос к API для получения фото
+  
+    // 3) Иначе — запрашиваем фото автора по email с бэка
     const fetchUserPhoto = async () => {
       try {
         const res = await fetch(
           `http://localhost:8000/api/firebase-users/?email=${encodeURIComponent(creatorEmail)}`
         );
-        
-        if (!res.ok) {
-          throw new Error(res.statusText);
-        }
-        
+        if (!res.ok) throw new Error(res.statusText);
         const users = await res.json();
-        
-        if (users.length === 0) {
-          setProfilePhoto(null);
-          setIsLoading(false);
-          return;
-        }
-        
         const photoUrl = users[0]?.profile_photo;
-        
-        if (!photoUrl) {
-          setProfilePhoto(null);
+        if (photoUrl) {
+          setProfilePhoto(
+            photoUrl.startsWith("http")
+              ? photoUrl
+              : `http://localhost:8000${photoUrl}`
+          );
         } else {
-          // Убедимся, что URL полный
-          const fullUrl = photoUrl.startsWith("http") ? photoUrl : `http://localhost:8000${photoUrl}`;
-          setProfilePhoto(fullUrl);
+          setProfilePhoto(null);
         }
       } catch (error) {
-        console.error(`Ошибка при загрузке аватара:`, error);
-        setProfilePhoto(null);
+        console.error("Ошибка при загрузке аватара:", error);
         setHasError(true);
+        setProfilePhoto(null);
       } finally {
         setIsLoading(false);
       }
     };
-
+  
     fetchUserPhoto();
-  }, [creatorEmail, currentPhotoURL, isCurrentUser]);
+  }, [creatorEmail, isCurrentUser, currentPhotoURL]);
+  
+  
 
   // Показываем индикатор загрузки
   if (isLoading) {

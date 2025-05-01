@@ -906,7 +906,8 @@ export default function HomePage() {
                                     {/* Task owner avatar - use the dedicated component */}
                                     <TaskCreatorAvatar 
                                       creatorEmail={task.creator_email}
-                                      currentPhotoURL={auth.currentUser?.photoURL || null}
+                                      // currentPhotoURL={auth.currentUser?.photoURL || null}
+                                      currentPhotoURL={currentPhotoURL}
                                     />
                                     
                                     {/* Task detail info button */}
