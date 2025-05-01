@@ -4,14 +4,22 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { auth, storage } from "../lib/firebase";
 import { authFetch } from "../lib/auth-utils";
-import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaEdit, FaSave, FaArrowLeft, FaSignOutAlt, FaChartBar, FaTasks, FaClipboardCheck, FaCamera, FaCheck, FaTimes } from "react-icons/fa";
+import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaEdit, FaSave, FaArrowLeft, FaSignOutAlt, FaChartBar, FaTasks, FaClipboardCheck, FaCamera, FaCheck, FaTimes, FaArrowRight, FaEye, FaUsers, FaInfoCircle } from "react-icons/fa";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { updateProfile } from "firebase/auth";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface UserStats {
   totalProjects: number;
   totalTasks: number;
   completedTasks: number;
+}
+
+interface Project {
+  id: number;
+  name: string;
+  user_id: string;
+  members: string[];
 }
 
 export default function MyCabinetPage() {
@@ -29,6 +37,9 @@ export default function MyCabinetPage() {
   const [isChangingPhoto, setIsChangingPhoto] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewURL, setPreviewURL] = useState<string | null>(null);
+  const [showProjects, setShowProjects] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -62,6 +73,8 @@ export default function MyCabinetPage() {
       if (!projectsResponse.ok) throw new Error(`Error: ${projectsResponse.status}`);
       const projects = await projectsResponse.json();
       
+      setProjects(projects);
+      
       // Count tasks across all projects
       let taskCount = 0;
       let completedCount = 0;
@@ -75,6 +88,34 @@ export default function MyCabinetPage() {
     } catch (err) {
       console.error("Error fetching user stats:", err);
     }
+  };
+
+  const fetchProjectDetails = async (projectId: number) => {
+    try {
+      const response = await authFetch(`http://localhost:8000/api/projects/${projectId}/`);
+      if (!response.ok) throw new Error(`Error: ${response.status}`);
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error(`Error fetching project details for ID ${projectId}:`, error);
+      return null;
+    }
+  };
+
+  const toggleShowProjects = () => {
+    setShowProjects(!showProjects);
+    if (!showProjects && projects.length === 0) {
+      setLoadingProjects(true);
+      fetchUserStats().finally(() => setLoadingProjects(false));
+    }
+  };
+
+  const goToProject = (projectId: number) => {
+    router.push(`/home?projectId=${projectId}`);
+  };
+
+  const viewProjectDetails = (projectId: number) => {
+    router.push(`/project-details/${projectId}`);
   };
 
   const handleUpdateDisplayName = async () => {
@@ -354,7 +395,10 @@ export default function MyCabinetPage() {
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Your Statistics</h2>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-lg shadow border border-blue-200">
+              <div 
+                className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-lg shadow border border-blue-200 cursor-pointer transition-all hover:shadow-md"
+                onClick={toggleShowProjects}
+              >
                 <div className="flex items-center gap-4">
                   <div className="bg-blue-500 text-white p-3 rounded-lg">
                     <FaChartBar size={24} />
@@ -390,6 +434,53 @@ export default function MyCabinetPage() {
                 </div>
               </div>
             </div>
+
+            <AnimatePresence>
+              {showProjects && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="mt-6"
+                >
+                  <h3 className="text-xl font-bold text-gray-800 mb-4">Projects</h3>
+                  {loadingProjects ? (
+                    <div className="text-center text-gray-600">Loading projects...</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {projects.map((project) => (
+                        <div 
+                          key={project.id} 
+                          className="p-4 bg-gray-50 rounded-lg border border-gray-200 flex justify-between items-center"
+                        >
+                          <div>
+                            <h4 className="font-medium text-gray-700">{project.name}</h4>
+                            <p className="text-sm text-gray-500">Members: {project.members.length}</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <button 
+                              onClick={() => viewProjectDetails(project.id)}
+                              className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition-colors"
+                              title="Project Details"
+                            >
+                              <FaInfoCircle size={18} />
+                              <span>Details</span>
+                            </button>
+                            <button 
+                              onClick={() => goToProject(project.id)}
+                              className="text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                            >
+                              <FaArrowRight size={16} />
+                              <span>Go to Project</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
           
           {/* Account Settings */}
