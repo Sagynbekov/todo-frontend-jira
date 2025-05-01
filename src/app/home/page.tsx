@@ -20,6 +20,7 @@ import { auth } from "../lib/firebase";
 import { syncFirebaseUserToBackend } from "../lib/firebase-sync";
 import { useRouter } from "next/navigation";
 import { TaskCreatorAvatar } from '../../components/TaskCreatorAvatar';
+import { UserAvatar } from '../../components/UserAvatar';
 
 // Generate consistent color based on string (email)
 const stringToColor = (str: string) => {
@@ -762,32 +763,23 @@ export default function HomePage() {
                 <>
                   {/* First show the owner with correct owner check */}
                   {auth.currentUser && (
-                    <div
-                      className="relative inline-flex items-center justify-center w-8 h-8 rounded-full border-2 border-white ring-2 ring-white shadow-md cursor-pointer transition-transform hover:scale-110 hover:z-10"
-                      style={{ backgroundColor: stringToColor(auth.currentUser.email || ''), zIndex: 99 }}
-                      title={`${auth.currentUser.email} ${selectedProject.user_id === auth.currentUser.uid ? '(Owner)' : ''}`}
-                    >
-                      <span className="text-white font-semibold text-xs">{getInitials(auth.currentUser.email || '')}</span>
-                      {/* Crown indicator only for actual owner */}
-                      {selectedProject.user_id === auth.currentUser.uid && (
-                        <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full flex items-center justify-center" title="Project Owner">
-                          <span className="text-white text-[8px]">★</span>
-                        </div>
-                      )}
-                    </div>
+                    <UserAvatar
+                      email={auth.currentUser.email || ''}
+                      currentPhotoURL={currentPhotoURL}
+                      isOwner={selectedProject.user_id === auth.currentUser.uid}
+                      showIndicator={true}
+                    />
                   )}
                   
                   {/* Then show all members */}
                   {selectedProject.members && selectedProject.members.length > 0 ? (
                     selectedProject.members.map((email, index) => (
-                      <div
+                      <UserAvatar
                         key={index}
-                        className="relative inline-flex items-center justify-center w-8 h-8 rounded-full border-2 border-white ring-2 ring-white shadow-md cursor-pointer transition-transform hover:scale-110 hover:z-10"
-                        style={{ backgroundColor: stringToColor(email), zIndex: selectedProject.members.length - index }}
-                        title={email}
-                      >
-                        <span className="text-white font-semibold text-xs">{getInitials(email)}</span>
-                      </div>
+                        email={email}
+                        currentPhotoURL={null}
+                        showIndicator={true}
+                      />
                     ))
                   ) : auth.currentUser ? null : (
                     <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 border-2 border-white shadow-md">
