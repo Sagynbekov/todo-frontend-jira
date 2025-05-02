@@ -598,10 +598,6 @@ export default function HomePage() {
     <div className="flex flex-col h-screen">
       {/* Header */}
       <header className="flex justify-end items-center bg-gray-700 text-white p-4 shadow-md border-b border-gray-600">
-        <button className="flex items-center gap-2 hover:text-gray-400">
-          <FaCog size={20} />
-          <span>Settings</span>
-        </button>
         <button 
           onClick={() => router.push("/myCabinet")}
           className="flex items-center gap-2 ml-6 hover:text-gray-400"

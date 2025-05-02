@@ -985,11 +985,11 @@ export default function MyCabinetPage() {
               <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                 <h3 className="font-medium text-gray-700 mb-1">Email Address</h3>
                 <p className="text-gray-600">{user?.email}</p>
-                <p className="text-sm text-gray-500 mt-1">
+                {/* <p className="text-sm text-gray-500 mt-1">
                   {user?.emailVerified 
                     ? "Your email is verified" 
                     : "Your email is not verified. Please check your inbox."}
-                </p>
+                </p> */}
               </div>
               
               <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
