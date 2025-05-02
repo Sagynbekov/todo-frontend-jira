@@ -78,6 +78,7 @@ type Task = {
   updated_at: string;
   creator_id?: string;
   creator_email?: string;
+  completed?: boolean;  // New field for tracking completion status
 };
 
 export default function HomePage() {
@@ -594,6 +595,10 @@ export default function HomePage() {
     }
   };
 
+  // Add this state for task title editing
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [editingTaskTitle, setEditingTaskTitle] = useState("");
+
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
@@ -857,34 +862,85 @@ export default function HomePage() {
                             tasks[col.id].map(task => (
                               <div 
                                 key={task.id}
-                                className={`p-4 bg-white rounded-lg shadow-md hover:shadow-lg border-l-4 border-indigo-400 cursor-pointer transition-all duration-200 transform hover:-translate-y-1 group ${
+                                className={`p-4 rounded-lg shadow-md hover:shadow-lg border-l-4 ${
+                                  task.completed 
+                                    ? 'bg-gray-300 border-gray-600 opacity-100' 
+                                    : 'bg-white border-indigo-400'
+                                } cursor-pointer transition-all duration-200 transform hover:-translate-y-1 group ${
                                   expandedTaskId === task.id ? 'z-10 relative' : ''
                                 }`}
-                                onClick={() => {
-                                  // Toggle expanded state on first click
-                                  setExpandedTaskId(prev => prev === task.id ? null : task.id);
+                                onClick={(e) => {
+                                  // Only toggle expanded state or open details if we're not currently editing
+                                  if (editingTaskId !== task.id) {
+                                    // Toggle expanded state on first click
+                                    setExpandedTaskId(prev => prev === task.id ? null : task.id);
+                                  }
+                                }}
+                                onDoubleClick={(e) => {
+                                  // Only open the details modal on double click if we're not editing
+                                  if (editingTaskId !== task.id) {
+                                    setSelectedTask(task);
+                                  }
                                 }}
                               >
                                 <div className="flex justify-between">
-                                  <p 
-                                    className={`text-gray-700 font-medium break-words pr-2 w-full ${
-                                      expandedTaskId === task.id 
-                                        ? '' 
-                                        : 'line-clamp-2 overflow-hidden text-ellipsis'
-                                    }`}
-                                  >
-                                    {task.title}
-                                  </p>
-                                  <button 
-                                    onClick={(e) => {
-                                      e.stopPropagation(); // Prevent card click handling
-                                      handleDeleteTask(task.id, col.id);
-                                    }}
-                                    className="text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                                    title="Delete task"
-                                  >
-                                    <FaTrash size={12} />
-                                  </button>
+                                  {editingTaskId === task.id ? (
+                                    <input
+                                      type="text"
+                                      value={editingTaskTitle}
+                                      onChange={(e) => setEditingTaskTitle(e.target.value)}
+                                      onBlur={() => {
+                                        if (editingTaskTitle.trim()) {
+                                          handleUpdateTask(task, { title: editingTaskTitle.trim() });
+                                        }
+                                        setEditingTaskId(null);
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter" && editingTaskTitle.trim()) {
+                                          handleUpdateTask(task, { title: editingTaskTitle.trim() });
+                                          setEditingTaskId(null);
+                                        }
+                                        if (e.key === "Escape") {
+                                          setEditingTaskId(null);
+                                        }
+                                      }}
+                                      className="w-full p-1 text-sm rounded border border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-gray-700"
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    <p 
+                                      className={`text-gray-700 font-medium break-words pr-2 w-full ${
+                                        expandedTaskId === task.id 
+                                          ? '' 
+                                          : 'line-clamp-2 overflow-hidden text-ellipsis'
+                                      } ${task.completed ? 'line-through text-gray-400' : ''}`}
+                                    >
+                                      {task.title}
+                                    </p>
+                                  )}
+                                  <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button 
+                                      onClick={(e) => {
+                                        e.stopPropagation(); // Prevent card click handling
+                                        setEditingTaskId(task.id);
+                                        setEditingTaskTitle(task.title);
+                                      }}
+                                      className="text-indigo-400 hover:text-indigo-600 mr-2 flex-shrink-0"
+                                      title="Edit task"
+                                    >
+                                      <FaEdit size={12} />
+                                    </button>
+                                    <button 
+                                      onClick={(e) => {
+                                        e.stopPropagation(); // Prevent card click handling
+                                        handleDeleteTask(task.id, col.id);
+                                      }}
+                                      className="text-red-400 hover:text-red-600 flex-shrink-0"
+                                      title="Delete task"
+                                    >
+                                      <FaTrash size={12} />
+                                    </button>
+                                  </div>
                                 </div>
                                 <div className="flex justify-between items-center mt-3">
                                   <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full truncate max-w-[80px]">
@@ -1126,14 +1182,15 @@ export default function HomePage() {
                 </button>
                 <button 
                   onClick={() => {
-                    const newDescription = prompt("Edit task description:", selectedTask.description);
-                    if (newDescription !== null) {
-                      handleUpdateTask(selectedTask, { description: newDescription });
-                    }
+                    handleUpdateTask(selectedTask, { completed: !selectedTask.completed });
                   }}
-                  className="px-4 py-2 rounded-md bg-indigo-500 text-white hover:bg-indigo-600 transition-colors duration-200"
+                  className={`px-4 py-2 rounded-md ${
+                    selectedTask.completed 
+                      ? 'bg-gray-500 hover:bg-gray-600' 
+                      : 'bg-green-500 hover:bg-green-600'
+                  } text-white transition-colors duration-200`}
                 >
-                  Edit Description
+                  {selectedTask.completed ? 'Mark as incomplete' : 'Mark as completed'}
                 </button>
               </div>
             </div>
