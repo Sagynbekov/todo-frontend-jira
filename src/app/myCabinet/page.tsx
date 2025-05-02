@@ -4,9 +4,9 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { auth, storage } from "../lib/firebase";
 import { authFetch } from "../lib/auth-utils";
-import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaEdit, FaSave, FaArrowLeft, FaSignOutAlt, FaChartBar, FaTasks, FaClipboardCheck, FaCamera, FaCheck, FaTimes, FaArrowRight, FaEye, FaUsers, FaInfoCircle, FaLock, FaShieldAlt, FaExclamationTriangle } from "react-icons/fa";
+import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaEdit, FaSave, FaArrowLeft, FaSignOutAlt, FaChartBar, FaTasks, FaClipboardCheck, FaCamera, FaCheck, FaTimes, FaArrowRight, FaEye, FaUsers, FaInfoCircle, FaLock, FaShieldAlt, FaExclamationTriangle, FaTrash, FaUserSlash } from "react-icons/fa";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { updateProfile, updatePassword, EmailAuthProvider, reauthenticateWithCredential, signOut } from "firebase/auth";
+import { updateProfile, updatePassword, EmailAuthProvider, reauthenticateWithCredential, signOut, deleteUser } from "firebase/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import ActivityCalendar from "../../components/ActivityCalendar";
 
@@ -60,6 +60,13 @@ export default function MyCabinetPage() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isPasswordLoading, setIsPasswordLoading] = useState(false);
+
+  // Состояния для удаления аккаунта
+  const [isAccountDeleteModalOpen, setIsAccountDeleteModalOpen] = useState(false);
+  const [deleteAccountPassword, setDeleteAccountPassword] = useState("");
+  const [showDeleteAccountPassword, setShowDeleteAccountPassword] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState("");
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((currentUser) => {
@@ -407,6 +414,26 @@ export default function MyCabinetPage() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    setIsDeletingAccount(true);
+    setDeleteAccountError("");
+
+    try {
+      const credential = EmailAuthProvider.credential(
+        user.email,
+        deleteAccountPassword
+      );
+      await reauthenticateWithCredential(user, credential);
+      await deleteUser(user);
+      router.push("/account-deleted");
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setDeleteAccountError("Ошибка при удалении аккаунта: " + errorMessage);
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100">
@@ -544,6 +571,85 @@ export default function MyCabinetPage() {
                       <>
                         <FaSave size={14} />
                         Сохранить
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно удаления аккаунта */}
+      {isAccountDeleteModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative">
+            <h3 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+              <FaTrash className="text-red-600" /> 
+              Удаление аккаунта
+            </h3>
+            
+            {deleteAccountError && (
+              <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg flex items-center gap-2">
+                <FaExclamationTriangle className="flex-shrink-0" />
+                <p>{deleteAccountError}</p>
+              </div>
+            )}
+            
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              handleDeleteAccount();
+            }}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-gray-700 font-medium mb-1">Пароль</label>
+                  <div className="relative">
+                    <input
+                      type={showDeleteAccountPassword ? "text" : "password"}
+                      value={deleteAccountPassword}
+                      onChange={(e) => setDeleteAccountPassword(e.target.value)}
+                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-gray-900"
+                      placeholder="Введите пароль для подтверждения"
+                      required
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => setShowDeleteAccountPassword(!showDeleteAccountPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-700"
+                    >
+                      <FaEye size={18} />
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="flex justify-between pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAccountDeleteModalOpen(false);
+                      setDeleteAccountPassword("");
+                      setDeleteAccountError("");
+                    }}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
+                  >
+                    Отмена
+                  </button>
+                  
+                  <button
+                    type="submit"
+                    disabled={isDeletingAccount}
+                    className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex items-center gap-2"
+                  >
+                    {isDeletingAccount ? (
+                      <>
+                        <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                        Удаление...
+                      </>
+                    ) : (
+                      <>
+                        <FaUserSlash size={14} />
+                        Удалить аккаунт
                       </>
                     )}
                   </button>
@@ -899,7 +1005,11 @@ export default function MyCabinetPage() {
               
               <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                 <h3 className="font-medium text-gray-700 mb-1">Account Management</h3>
-                <button className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors">
+                <button 
+                  onClick={() => setIsAccountDeleteModalOpen(true)} 
+                  className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex items-center gap-2"
+                >
+                  <FaTrash size={14} />
                   Delete Account
                 </button>
               </div>
