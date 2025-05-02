@@ -4,10 +4,11 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { auth, storage } from "../lib/firebase";
 import { authFetch } from "../lib/auth-utils";
-import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaEdit, FaSave, FaArrowLeft, FaSignOutAlt, FaChartBar, FaTasks, FaClipboardCheck, FaCamera, FaCheck, FaTimes, FaArrowRight, FaEye, FaUsers, FaInfoCircle } from "react-icons/fa";
+import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaEdit, FaSave, FaArrowLeft, FaSignOutAlt, FaChartBar, FaTasks, FaClipboardCheck, FaCamera, FaCheck, FaTimes, FaArrowRight, FaEye, FaUsers, FaInfoCircle, FaLock, FaShieldAlt, FaExclamationTriangle } from "react-icons/fa";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { updateProfile } from "firebase/auth";
+import { updateProfile, updatePassword, EmailAuthProvider, reauthenticateWithCredential, signOut } from "firebase/auth";
 import { motion, AnimatePresence } from "framer-motion";
+import ActivityCalendar from "../../components/ActivityCalendar";
 
 interface UserStats {
   totalProjects: number;
@@ -40,7 +41,25 @@ export default function MyCabinetPage() {
   const [showProjects, setShowProjects] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
+  const [showTaskActivity, setShowTaskActivity] = useState(false);
+  const [taskActivity, setTaskActivity] = useState<{[date: string]: number}>({});
+  const [loadingTaskActivity, setLoadingTaskActivity] = useState(false);
+  const [completedTaskActivity, setCompletedTaskActivity] = useState<{[date: string]: number}>({});
+  const [showCompletedTaskActivity, setShowCompletedTaskActivity] = useState(false);
+  const [loadingCompletedTaskActivity, setLoadingCompletedTaskActivity] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Состояния для смены пароля
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isPasswordLoading, setIsPasswordLoading] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((currentUser) => {
@@ -233,6 +252,161 @@ export default function MyCabinetPage() {
     router.push("/home");
   };
 
+  const fetchTaskActivity = async () => {
+    if (!user) return;
+    
+    setLoadingTaskActivity(true);
+    try {
+      // Получаем все проекты пользователя
+      const projectsResponse = await authFetch("http://localhost:8000/api/projects/");
+      if (!projectsResponse.ok) throw new Error(`Error: ${projectsResponse.status}`);
+      const projects = await projectsResponse.json();
+      
+      // Собираем данные по активности из всех проектов
+      const activityData: {[date: string]: number} = {};
+      
+      for (const project of projects) {
+        // Получаем все колонки проекта
+        const columnsResponse = await authFetch(`http://localhost:8000/api/columns/?project_id=${project.id}`);
+        if (!columnsResponse.ok) continue;
+        const columns = await columnsResponse.json();
+        
+        // Получаем задачи из каждой колонки
+        for (const column of columns) {
+          const tasksResponse = await authFetch(`http://localhost:8000/api/tasks/?column_id=${column.id}`);
+          if (!tasksResponse.ok) continue;
+          const tasks = await tasksResponse.json();
+          
+          // Фильтруем задачи, созданные текущим пользователем
+          const userTasks = tasks.filter((task: any) => 
+            task.creator_email === user.email
+          );
+          
+          // Группируем задачи по дате создания
+          userTasks.forEach((task: any) => {
+            const date = new Date(task.created_at).toISOString().split('T')[0];
+            if (!activityData[date]) {
+              activityData[date] = 0;
+            }
+            activityData[date]++;
+          });
+        }
+      }
+      
+      setTaskActivity(activityData);
+      setStats(prevStats => ({
+        ...prevStats,
+        totalTasks: Object.values(activityData).reduce((sum, count) => sum + count, 0)
+      }));
+    } catch (err) {
+      console.error("Error fetching task activity:", err);
+    } finally {
+      setLoadingTaskActivity(false);
+    }
+  };
+
+  const toggleShowTaskActivity = () => {
+    setShowTaskActivity(!showTaskActivity);
+    if (!showTaskActivity && Object.keys(taskActivity).length === 0) {
+      fetchTaskActivity();
+    }
+  };
+
+  const fetchCompletedTaskActivity = async () => {
+    if (!user) return;
+    
+    setLoadingCompletedTaskActivity(true);
+    try {
+      // Получаем все проекты пользователя
+      const projectsResponse = await authFetch("http://localhost:8000/api/projects/");
+      if (!projectsResponse.ok) throw new Error(`Error: ${projectsResponse.status}`);
+      const projects = await projectsResponse.json();
+      
+      // Собираем данные по активности выполненных задач
+      const activityData: {[date: string]: number} = {};
+      
+      for (const project of projects) {
+        // Получаем все колонки проекта
+        const columnsResponse = await authFetch(`http://localhost:8000/api/columns/?project_id=${project.id}`);
+        if (!columnsResponse.ok) continue;
+        const columns = await columnsResponse.json();
+        
+        // Находим колонку "Завершено" или "Выполнено" или последнюю колонку
+        const completedColumn = columns.find((col: any) => 
+          /заверш|выполн|done|complet/i.test(col.name)
+        ) || columns[columns.length - 1];
+        
+        if (completedColumn) {
+          // Получаем задачи из колонки "Завершено"
+          const tasksResponse = await authFetch(`http://localhost:8000/api/tasks/?column_id=${completedColumn.id}`);
+          if (!tasksResponse.ok) continue;
+          const tasks = await tasksResponse.json();
+          
+          // Фильтруем задачи, созданные текущим пользователем
+          const userTasks = tasks.filter((task: any) => 
+            task.creator_email === user.email
+          );
+          
+          // Группируем задачи по дате обновления (когда они были перемещены в колонку "Завершено")
+          userTasks.forEach((task: any) => {
+            // Используем дату обновления как примерную дату завершения
+            const date = new Date(task.updated_at).toISOString().split('T')[0];
+            if (!activityData[date]) {
+              activityData[date] = 0;
+            }
+            activityData[date]++;
+          });
+        }
+      }
+      
+      setCompletedTaskActivity(activityData);
+      setStats(prevStats => ({
+        ...prevStats,
+        completedTasks: Object.values(activityData).reduce((sum, count) => sum + count, 0)
+      }));
+    } catch (err) {
+      console.error("Error fetching completed task activity:", err);
+    } finally {
+      setLoadingCompletedTaskActivity(false);
+    }
+  };
+
+  const toggleShowCompletedTaskActivity = () => {
+    setShowCompletedTaskActivity(!showCompletedTaskActivity);
+    if (!showCompletedTaskActivity && Object.keys(completedTaskActivity).length === 0) {
+      fetchCompletedTaskActivity();
+    }
+  };
+
+  const handlePasswordChange = async () => {
+    if (newPassword !== confirmNewPassword) {
+      setPasswordError("Новые пароли не совпадают");
+      return;
+    }
+
+    setIsPasswordLoading(true);
+    setPasswordError("");
+    setPasswordSuccess("");
+
+    try {
+      const credential = EmailAuthProvider.credential(
+        user.email,
+        currentPassword
+      );
+      await reauthenticateWithCredential(user, credential);
+      await updatePassword(user, newPassword);
+      setPasswordSuccess("Пароль успешно изменен");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setPasswordError("Ошибка при смене пароля: " + errorMessage);
+    } finally {
+      setIsPasswordLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100">
@@ -246,6 +420,140 @@ export default function MyCabinetPage() {
 
   return (
     <div className="min-h-screen bg-gray-100">
+      {/* Модальное окно смены пароля */}
+      {isChangingPassword && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative">
+            <h3 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+              <FaShieldAlt className="text-indigo-600" /> 
+              Смена пароля
+            </h3>
+            
+            {passwordSuccess && (
+              <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-lg flex items-center gap-2">
+                <FaCheck className="flex-shrink-0" />
+                <p>{passwordSuccess}</p>
+              </div>
+            )}
+            
+            {passwordError && (
+              <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg flex items-center gap-2">
+                <FaExclamationTriangle className="flex-shrink-0" />
+                <p>{passwordError}</p>
+              </div>
+            )}
+            
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              handlePasswordChange();
+            }}>
+              <div className="space-y-4">
+                {/* Текущий пароль */}
+                <div>
+                  <label className="block text-gray-700 font-medium mb-1">Текущий пароль</label>
+                  <div className="relative">
+                    <input
+                      type={showCurrentPassword ? "text" : "password"}
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900"
+                      placeholder="Введите текущий пароль"
+                      required
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-700"
+                    >
+                      <FaEye size={18} />
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Новый пароль */}
+                <div>
+                  <label className="block text-gray-700 font-medium mb-1">Новый пароль</label>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? "text" : "password"}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900"
+                      placeholder="Введите новый пароль"
+                      required
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-700"
+                    >
+                      <FaEye size={18} />
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Подтверждение нового пароля */}
+                <div>
+                  <label className="block text-gray-700 font-medium mb-1">Подтверждение пароля</label>
+                  <div className="relative">
+                    <input
+                      type={showConfirmPassword ? "text" : "password"}
+                      value={confirmNewPassword}
+                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900"
+                      placeholder="Подтвердите новый пароль"
+                      required
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-700"
+                    >
+                      <FaEye size={18} />
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="flex justify-between pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsChangingPassword(false);
+                      setCurrentPassword("");
+                      setNewPassword("");
+                      setConfirmNewPassword("");
+                      setPasswordError("");
+                      setPasswordSuccess("");
+                    }}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
+                  >
+                    Отмена
+                  </button>
+                  
+                  <button
+                    type="submit"
+                    disabled={isPasswordLoading}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                  >
+                    {isPasswordLoading ? (
+                      <>
+                        <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                        Сохранение...
+                      </>
+                    ) : (
+                      <>
+                        <FaSave size={14} />
+                        Сохранить
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-gray-700 text-white shadow-md border-b border-gray-600">
         <div className="container mx-auto px-6 py-4">
@@ -351,18 +659,32 @@ export default function MyCabinetPage() {
               <div className="text-center md:text-left">
                 {isEditingName ? (
                   <div className="flex items-center gap-2 mt-1">
-                    <input
-                      type="text"
-                      value={displayName}
-                      onChange={(e) => setDisplayName(e.target.value)}
-                      className="px-3 py-2 rounded text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      autoFocus
-                    />
+                    <div className="relative w-full max-w-xs">
+                      <input
+                        type="text"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        className="w-full px-4 py-2.5 pl-4 rounded-xl bg-white/20 backdrop-blur-sm text-white border border-white/30 focus:outline-none focus:ring-2 focus:ring-white/50 shadow-lg transition-all placeholder-white/70"
+                        autoFocus
+                        placeholder="Enter your name..."
+                      />
+                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                        <button 
+                          onClick={handleUpdateDisplayName}
+                          className="p-1.5 rounded-lg bg-white/25 hover:bg-white/40 text-white transition-colors"
+                        >
+                          <FaSave size={14} />
+                        </button>
+                      </div>
+                    </div>
                     <button 
-                      onClick={handleUpdateDisplayName}
-                      className="bg-white text-indigo-600 p-2 rounded hover:bg-gray-100 transition-colors"
+                      onClick={() => {
+                        setDisplayName(user?.displayName || user?.email?.split('@')[0] || "User");
+                        setIsEditingName(false);
+                      }}
+                      className="p-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
                     >
-                      <FaSave size={16} />
+                      <FaTimes size={14} />
                     </button>
                   </div>
                 ) : (
@@ -410,7 +732,10 @@ export default function MyCabinetPage() {
                 </div>
               </div>
               
-              <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-6 rounded-lg shadow border border-purple-200">
+              <div 
+                className="bg-gradient-to-br from-purple-50 to-purple-100 p-6 rounded-lg shadow border border-purple-200 cursor-pointer transition-all hover:shadow-md"
+                onClick={toggleShowTaskActivity}
+              >
                 <div className="flex items-center gap-4">
                   <div className="bg-purple-500 text-white p-3 rounded-lg">
                     <FaTasks size={24} />
@@ -422,7 +747,10 @@ export default function MyCabinetPage() {
                 </div>
               </div>
               
-              <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-lg shadow border border-green-200">
+              <div 
+                className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-lg shadow border border-green-200 cursor-pointer transition-all hover:shadow-md"
+                onClick={toggleShowCompletedTaskActivity}
+              >
                 <div className="flex items-center gap-4">
                   <div className="bg-green-500 text-white p-3 rounded-lg">
                     <FaClipboardCheck size={24} />
@@ -447,35 +775,95 @@ export default function MyCabinetPage() {
                   {loadingProjects ? (
                     <div className="text-center text-gray-600">Loading projects...</div>
                   ) : (
-                    <div className="space-y-4">
+                    <div className={`space-y-4 ${projects.length > 5 ? 'max-h-[500px] overflow-y-auto pr-2 custom-scrollbar' : ''}`}>
                       {projects.map((project) => (
                         <div 
                           key={project.id} 
-                          className="p-4 bg-gray-50 rounded-lg border border-gray-200 flex justify-between items-center"
+                          className="p-4 bg-gradient-to-r from-blue-50 to-indigo-100 rounded-lg border border-blue-200 hover:shadow-md transition-all cursor-pointer flex justify-between items-center"
+                          onClick={() => viewProjectDetails(project.id)}
                         >
                           <div>
                             <h4 className="font-medium text-gray-700">{project.name}</h4>
-                            <p className="text-sm text-gray-500">Members: {project.members.length}</p>
+                            <div className="flex items-center gap-2 text-sm text-gray-500">
+                              <FaUsers size={14} /> 
+                              <span>{project.members.length} members</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <button 
-                              onClick={() => viewProjectDetails(project.id)}
-                              className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition-colors"
-                              title="Project Details"
-                            >
-                              <FaInfoCircle size={18} />
-                              <span>Details</span>
-                            </button>
-                            <button 
-                              onClick={() => goToProject(project.id)}
-                              className="text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
-                            >
-                              <FaArrowRight size={16} />
-                              <span>Go to Project</span>
-                            </button>
+                          <div className="flex items-center">
+                            <FaArrowRight size={16} className="text-blue-600" />
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+              {showTaskActivity && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="mt-6"
+                >
+                  <h3 className="text-xl font-bold text-gray-800 mb-4">Task Activity</h3>
+                  {loadingTaskActivity ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500 mx-auto"></div>
+                      <p className="mt-4 text-gray-600">Loading your activity data...</p>
+                    </div>
+                  ) : Object.keys(taskActivity).length > 0 ? (
+                    <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                      <h4 className="text-gray-700 font-medium mb-3">Your GitHub-style contribution calendar</h4>
+                      <div className="overflow-x-auto">
+                        <ActivityCalendar 
+                          activityData={taskActivity} 
+                          colorMode="purple"
+                          title="Tasks created this month" 
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
+                      <FaInfoCircle size={36} className="text-gray-400 mx-auto mb-3" />
+                      <p className="text-gray-500">No task activity found. Start creating tasks to see your activity calendar!</p>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+              {showCompletedTaskActivity && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="mt-6"
+                >
+                  <h3 className="text-xl font-bold text-gray-800 mb-4">Completed Task Activity</h3>
+                  {loadingCompletedTaskActivity ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500 mx-auto"></div>
+                      <p className="mt-4 text-gray-600">Loading your completed tasks data...</p>
+                    </div>
+                  ) : Object.keys(completedTaskActivity).length > 0 ? (
+                    <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                      <h4 className="text-gray-700 font-medium mb-3">Your GitHub-style completion calendar</h4>
+                      <div className="overflow-x-auto">
+                        <ActivityCalendar 
+                          activityData={completedTaskActivity} 
+                          colorMode="green"
+                          title="Tasks completed this month" 
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
+                      <FaInfoCircle size={36} className="text-gray-400 mx-auto mb-3" />
+                      <p className="text-gray-500">No completed tasks found for this month. Complete tasks to see your activity calendar!</p>
                     </div>
                   )}
                 </motion.div>
@@ -500,7 +888,11 @@ export default function MyCabinetPage() {
               
               <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                 <h3 className="font-medium text-gray-700 mb-1">Security</h3>
-                <button className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors">
+                <button 
+                  onClick={() => setIsChangingPassword(true)} 
+                  className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                >
+                  <FaLock size={14} />
                   Change Password
                 </button>
               </div>

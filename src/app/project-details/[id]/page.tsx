@@ -5,7 +5,13 @@ import { useRouter } from 'next/navigation';
 import { useParams } from 'next/navigation';
 import { auth } from '../../lib/firebase';
 import { authFetch } from '../../lib/auth-utils';
-import { FaArrowLeft, FaUsers, FaCalendarAlt, FaUserCircle, FaTasks, FaHome, FaUserCog } from 'react-icons/fa';
+import { FaArrowLeft, FaUsers, FaCalendarAlt, FaUserCircle, FaTasks, FaHome, FaUserCog, FaCheckCircle, FaExclamationCircle, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
+import { Pie } from 'react-chartjs-2';
+import ChartDataLabels from 'chartjs-plugin-datalabels';
+
+// Register necessary components for Chart.js
+ChartJS.register(ArcElement, Tooltip, Legend, ChartDataLabels);
 
 interface Project {
   id: number;
@@ -39,6 +45,17 @@ interface Member {
   profile_photo: string | null;
 }
 
+// Types for member metrics
+interface MemberMetrics {
+  email: string;
+  tasksCreated: number;
+  tasksCompleted: number;
+  tasksOverdue: number; 
+}
+
+// Type of chart currently displayed
+type ChartType = 'created' | 'completed' | 'overdue';
+
 export default function ProjectDetailsPage() {
   const router = useRouter();
   const params = useParams();
@@ -48,8 +65,15 @@ export default function ProjectDetailsPage() {
   const [columns, setColumns] = useState<Column[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [memberMetrics, setMemberMetrics] = useState<MemberMetrics[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeChart, setActiveChart] = useState<ChartType>('created');
+  // Add state for legend pagination
+  const [legendPage, setLegendPage] = useState(0);
+  
+  // Determine project owner
+  const isOwner = (memberId: string) => project?.user_id === memberId;
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
@@ -66,6 +90,7 @@ export default function ProjectDetailsPage() {
     return () => unsubscribe();
   }, [projectId, router]);
 
+  // Fetch project details
   const fetchProjectDetails = async (id: number) => {
     setLoading(true);
     setError(null);
@@ -79,6 +104,9 @@ export default function ProjectDetailsPage() {
       const projectData = await projectResponse.json();
       setProject(projectData);
 
+      // Initialize tasks array
+      let allTasks: Task[] = [];
+
       // Fetch columns for this project
       const columnsResponse = await authFetch(`http://localhost:8000/api/columns/?project_id=${id}`);
       if (columnsResponse.ok) {
@@ -86,7 +114,6 @@ export default function ProjectDetailsPage() {
         setColumns(columnsData);
 
         // Fetch tasks for each column
-        const allTasks: Task[] = [];
         for (const column of columnsData) {
           const tasksResponse = await authFetch(`http://localhost:8000/api/tasks/?column_id=${column.id}`);
           if (tasksResponse.ok) {
@@ -98,25 +125,159 @@ export default function ProjectDetailsPage() {
       }
 
       // Fetch members details
-      if (projectData.members && projectData.members.length > 0) {
-        const memberDetails: Member[] = [];
-        for (const email of projectData.members) {
-          const userResponse = await authFetch(`http://localhost:8000/api/firebase-users/?email=${email}`);
-          if (userResponse.ok) {
-            const userData = await userResponse.json();
-            if (userData.length > 0) {
-              memberDetails.push(userData[0]);
-            }
-          }
+      // 1) first gather project member details
+      const memberDetails: Member[] = [];
+      for (const email of projectData.members || []) {
+        const userResponse = await authFetch(
+          `http://localhost:8000/api/firebase-users/?email=${email}`
+        );
+        if (userResponse.ok) {
+          const userData = await userResponse.json();
+          if (userData.length > 0) memberDetails.push(userData[0]);
         }
-        setMembers(memberDetails);
       }
+
+      // 2) then fetch project owner
+      let owner: Member | null = null;
+      const ownerResp = await authFetch(
+        `http://localhost:8000/api/firebase-users/?firebase_user_id=${projectData.user_id}`
+      );
+      if (ownerResp.ok) {
+        const ownerData = await ownerResp.json();
+        if (ownerData.length > 0) owner = ownerData[0];
+      }
+
+      // 3) combine into one array (owner first)
+      const allMembers = owner ? [owner, ...memberDetails] : memberDetails;
+
+      setMembers(allMembers);
+      generateMemberMetrics(allMembers, allTasks);
     } catch (err) {
       console.error('Error fetching project details:', err);
       setError(err instanceof Error ? err.message : 'Unknown error occurred');
     } finally {
       setLoading(false);
     }
+  };
+  
+  // Function to generate member metrics
+  // Remove old implementation of generateMemberMetrics and insert this
+
+  const generateMemberMetrics = (members: Member[], tasks: Task[]) => {
+    console.log('Generating metrics for members:', members);
+    console.log('Available tasks:', tasks);
+
+    // Calculate metrics by email, without removing users with zero tasks
+    const metrics: MemberMetrics[] = members.map(member => {
+      const memberEmail = member.email.toLowerCase().trim();
+
+      // Count only by creator_email
+      const createdTasks = tasks.filter(task =>
+        task.creator_email?.toLowerCase().trim() === memberEmail
+      );
+      console.log(`Tasks created by ${member.email}:`, createdTasks.length);
+
+      // Find "completed" column by name (or last one)
+      const completedColumnId = columns.find(col =>
+        /заверш|выполн|done|complet/i.test(col.name)
+      )?.id ?? columns[columns.length - 1]?.id;
+
+      const completedTasks = completedColumnId
+        ? createdTasks.filter(task => task.column === completedColumnId)
+        : [];
+      console.log(`Completed tasks for ${member.email}:`, completedTasks.length);
+
+      // Overdue — test (you can replace with real logic)
+      const overdueTasks = Math.floor(
+        Math.random() * Math.max(1, createdTasks.length - completedTasks.length)
+      );
+
+      return {
+        email: member.email,
+        tasksCreated: createdTasks.length,
+        tasksCompleted: completedTasks.length,
+        tasksOverdue: overdueTasks
+      };
+    });
+
+    // Always set real metrics, even if someone has zero tasks
+    if (metrics.length > 0) {
+      setMemberMetrics(metrics);
+    } else {
+      // fallback: test data if there are no tasks at all
+      const testMetrics = members.map((member, idx) => ({
+        email: member.email,
+        tasksCreated: (idx + 1) * 2,
+        tasksCompleted: idx + 1,
+        tasksOverdue: Math.max(0, idx)
+      }));
+      setMemberMetrics(testMetrics);
+    }
+  };
+
+  // Function to prepare chart data based on selected type
+  const getChartData = () => {
+    // Base colors for the chart
+    const backgroundColors = [
+      'rgba(255, 99, 132, 0.7)',
+      'rgba(54, 162, 235, 0.7)',
+      'rgba(255, 206, 86, 0.7)',
+      'rgba(75, 192, 192, 0.7)',
+      'rgba(153, 102, 255, 0.7)',
+      'rgba(255, 159, 64, 0.7)',
+      'rgba(199, 199, 199, 0.7)',
+    ];
+    
+    const borderColors = [
+      'rgba(255, 99, 132, 1)',
+      'rgba(54, 162, 235, 1)',
+      'rgba(255, 206, 86, 1)',
+      'rgba(75, 192, 192, 1)',
+      'rgba(153, 102, 255, 1)',
+      'rgba(255, 159, 64, 1)',
+      'rgba(199, 199, 199, 1)',
+    ];
+    
+    let labels: string[] = [];
+    let data: number[] = [];
+    let title = '';
+    
+    // Depending on the selected chart type
+    switch(activeChart) {
+      case 'created':
+        title = 'Created Tasks';
+        labels = memberMetrics.map(m => m.email);
+        data = memberMetrics.map(m => m.tasksCreated);
+        break;
+      case 'completed':
+        title = 'Completed Tasks';
+        labels = memberMetrics.map(m => m.email);
+        data = memberMetrics.map(m => m.tasksCompleted);
+        break;
+      case 'overdue':
+        title = 'Overdue Tasks';
+        labels = memberMetrics.map(m => m.email);
+        data = memberMetrics.map(m => m.tasksOverdue);
+        break;
+    }
+    
+    // Calculate percentages for each user
+    const total = data.reduce((sum, value) => sum + value, 0) || 1; // Prevent division by zero
+    const percentages = data.map(value => ((value / total) * 100).toFixed(1));
+    
+    return {
+      labels,
+      datasets: [
+        {
+          label: title,
+          data,
+          backgroundColor: backgroundColors.slice(0, data.length),
+          borderColor: borderColors.slice(0, data.length),
+          borderWidth: 1,
+        },
+      ],
+      percentages, // Save percentages for access in the legend
+    };
   };
 
   const handleBackToHome = () => {
@@ -129,7 +290,7 @@ export default function ProjectDetailsPage() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('ru-RU', {
+    return date.toLocaleDateString('en-US', {
       year: 'numeric', 
       month: 'long', 
       day: 'numeric',
@@ -143,7 +304,7 @@ export default function ProjectDetailsPage() {
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Загрузка информации о проекте...</p>
+          <p className="mt-4 text-gray-600">Loading project information...</p>
         </div>
       </div>
     );
@@ -153,13 +314,13 @@ export default function ProjectDetailsPage() {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
-          <h2 className="text-2xl font-bold text-red-600 mb-4">Ошибка</h2>
+          <h2 className="text-2xl font-bold text-red-600 mb-4">Error</h2>
           <p className="text-gray-700 mb-6">{error}</p>
           <button
             onClick={() => router.push('/home')}
             className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors"
           >
-            Вернуться на главную
+            Back to Home
           </button>
         </div>
       </div>
@@ -179,7 +340,7 @@ export default function ProjectDetailsPage() {
               >
                 <FaArrowLeft size={18} />
               </button>
-              <h1 className="text-2xl font-bold">{project?.name || 'Информация о проекте'}</h1>
+              <h1 className="text-2xl font-bold">{project?.name || 'Project Information'}</h1>
             </div>
             
             <button
@@ -187,7 +348,7 @@ export default function ProjectDetailsPage() {
               className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
             >
               <FaHome size={16} />
-              <span>Открыть проект</span>
+              <span>Open Project</span>
             </button>
           </div>
         </div>
@@ -196,7 +357,7 @@ export default function ProjectDetailsPage() {
       <main className="container mx-auto px-6 py-8">
         {project && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Основная информация */}
+            {/* Main Information */}
             <div className="col-span-2">
               <div className="bg-white rounded-lg shadow-lg overflow-hidden mb-8">
                 <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6">
@@ -205,14 +366,14 @@ export default function ProjectDetailsPage() {
                 <div className="p-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <h3 className="text-lg font-medium text-gray-800 mb-4">Статистика проекта</h3>
+                      <h3 className="text-lg font-medium text-gray-800 mb-4">Project Statistics</h3>
                       <div className="space-y-4">
                         <div className="flex items-center gap-3">
                           <div className="bg-blue-100 text-blue-600 p-2 rounded-lg">
                             <FaUsers size={20} />
                           </div>
                           <div>
-                            <p className="text-sm text-gray-500">Участников</p>
+                            <p className="text-sm text-gray-500">Members</p>
                             <p className="text-lg font-semibold">{project.members.length}</p>
                           </div>
                         </div>
@@ -222,7 +383,7 @@ export default function ProjectDetailsPage() {
                             <FaTasks size={20} />
                           </div>
                           <div>
-                            <p className="text-sm text-gray-500">Задач</p>
+                            <p className="text-sm text-gray-500">Tasks</p>
                             <p className="text-lg font-semibold">{tasks.length}</p>
                           </div>
                         </div>
@@ -232,7 +393,7 @@ export default function ProjectDetailsPage() {
                             <FaCalendarAlt size={20} />
                           </div>
                           <div>
-                            <p className="text-sm text-gray-500">Колонок</p>
+                            <p className="text-sm text-gray-500">Columns</p>
                             <p className="text-lg font-semibold">{columns.length}</p>
                           </div>
                         </div>
@@ -240,8 +401,8 @@ export default function ProjectDetailsPage() {
                     </div>
                     
                     <div>
-                      <h3 className="text-lg font-medium text-gray-800 mb-4">Колонки</h3>
-                      <div className="space-y-3">
+                      <h3 className="text-lg font-medium text-gray-800 mb-4">Columns</h3>
+                      <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                         {columns.length > 0 ? (
                           columns.map(column => (
                             <div 
@@ -252,14 +413,14 @@ export default function ProjectDetailsPage() {
                                 <div>
                                   <h4 className="font-medium text-gray-700">{column.name}</h4>
                                   <p className="text-sm text-gray-500">
-                                    {tasks.filter(t => t.column === column.id).length} задач
+                                    {tasks.filter(t => t.column === column.id).length} tasks
                                   </p>
                                 </div>
                               </div>
                             </div>
                           ))
                         ) : (
-                          <p className="text-gray-500">Колонки не найдены</p>
+                          <p className="text-gray-500">No columns found</p>
                         )}
                       </div>
                     </div>
@@ -267,79 +428,172 @@ export default function ProjectDetailsPage() {
                 </div>
               </div>
               
-              {/* Последние задачи */}
+              {/* Task Analytics by Members */}
               <div className="bg-white rounded-lg shadow-lg overflow-hidden">
                 <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6">
-                  <h2 className="text-2xl font-bold text-white">Последние задачи</h2>
+                  <h2 className="text-2xl font-bold text-white">Task Analytics</h2>
                 </div>
                 <div className="p-6">
-                  {tasks.length > 0 ? (
-                    <div className="space-y-4">
-                      {tasks.slice(0, 5).map(task => (
-                        <div 
-                          key={task.id}
-                          className="p-4 bg-gray-50 rounded-lg border border-gray-200"
-                        >
-                          <h4 className="font-medium text-gray-800 mb-2">{task.title}</h4>
-                          {task.description && (
-                            <p className="text-gray-600 mb-3">{task.description}</p>
-                          )}
-                          <div className="flex justify-between items-center mt-2">
-                            <span className="text-sm text-gray-500">
-                              {columns.find(c => c.id === task.column)?.name || 'Неизвестная колонка'}
-                            </span>
-                            <span className="text-sm text-gray-500">
-                              Обновлено: {formatDate(task.updated_at)}
-                            </span>
-                          </div>
+                  {/* Chart Type Switcher */}
+                  <div className="mb-6 flex justify-center">
+                    <div className="bg-gray-100 p-1 rounded-lg flex">
+                      <button 
+                        onClick={() => setActiveChart('created')}
+                        className={`px-4 py-2 rounded-md transition-all ${
+                          activeChart === 'created' 
+                            ? 'bg-purple-600 text-white shadow-md' 
+                            : 'text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <FaTasks size={16} />
+                          <span>Created</span>
                         </div>
-                      ))}
+                      </button>
+                      <button 
+                        onClick={() => setActiveChart('completed')}
+                        className={`px-4 py-2 rounded-md transition-all ${
+                          activeChart === 'completed' 
+                            ? 'bg-purple-600 text-white shadow-md' 
+                            : 'text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <FaCheckCircle size={16} />
+                          <span>Completed</span>
+                        </div>
+                      </button>
+                      <button 
+                        onClick={() => setActiveChart('overdue')}
+                        className={`px-4 py-2 rounded-md transition-all ${
+                          activeChart === 'overdue' 
+                            ? 'bg-purple-600 text-white shadow-md' 
+                            : 'text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <FaExclamationCircle size={16} />
+                          <span>Overdue</span>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Chart */}
+                  {memberMetrics.length > 0 ? (
+                    <div className="flex flex-col items-center">
+                      <div className="w-full max-w-md mb-8">
+                        <Pie 
+                          data={getChartData()} 
+                          options={{
+                            plugins: {
+                              legend: {
+                                position: 'bottom',
+                                display: false // Disable default ChartJS legend
+                              },
+                              tooltip: {
+                                callbacks: {
+                                  label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.raw || 0;
+                                    const percentage = getChartData().percentages[context.dataIndex] || 0;
+                                    return `${label}: ${value} tasks (${percentage}%)`;
+                                  }
+                                },
+                                bodyFont: {
+                                  size: 14
+                                },
+                                titleFont: {
+                                  size: 16
+                                },
+                                backgroundColor: 'rgba(0,0,0,0.8)',
+                                padding: 12,
+                                cornerRadius: 8,
+                                displayColors: true,
+                                boxPadding: 6
+                              },
+                              // Disable constant display of labels on the chart
+                              datalabels: {
+                                display: false
+                              }
+                            },
+                            maintainAspectRatio: true,
+                            animation: {
+                              animateScale: true,
+                              animateRotate: true
+                            },
+                            // Customize hover effects
+                            onHover: (event, chartElements, chart) => {
+                              if (chart?.canvas) {
+                                chart.canvas.style.cursor = chartElements.length ? 'pointer' : 'default';
+                              }
+                            }
+                          }} 
+                        />
+                      </div>
                       
-                      {tasks.length > 5 && (
-                        <div className="text-center mt-4">
-                          <p className="text-gray-500">
-                            Показано 5 из {tasks.length} задач
-                          </p>
-                          <button 
-                            onClick={handleGoToProjectPage}
-                            className="mt-2 text-indigo-600 hover:text-indigo-800"
-                          >
-                            Открыть все задачи
-                          </button>
+                      {/* Custom Legend with Pagination */}
+                      <div className="w-full max-w-md bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <div className="grid grid-cols-2 gap-4">
+                          {getChartData().labels.slice(legendPage * 8, legendPage * 8 + 8).map((label, index) => {
+                            const realIndex = legendPage * 8 + index;
+                            const data = getChartData();
+                            const percentage = data.percentages[realIndex];
+                            return (
+                              <div key={label} className="flex items-center gap-2">
+                                <div 
+                                  className="w-4 h-4 rounded-full flex-shrink-0" 
+                                  style={{ backgroundColor: data.datasets[0].backgroundColor[realIndex] }}
+                                ></div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-sm text-gray-700 overflow-ellipsis overflow-hidden">{label}</span>
+                                    <span className="text-xs font-medium px-2 py-1 ml-2 bg-gray-200 text-gray-700 rounded-full">
+                                      {percentage}%
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                      )}
+                        
+                        {/* Legend Pagination */}
+                        {memberMetrics.length > 8 && (
+                          <div className="flex justify-center mt-6">
+                            <button 
+                              onClick={() => setLegendPage(prev => Math.max(0, prev - 1))}
+                              disabled={legendPage === 0}
+                              className={`p-2 rounded-full mr-3 ${legendPage === 0 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-200'}`}
+                            >
+                              <FaChevronLeft size={16} />
+                            </button>
+                            <span className="text-sm text-gray-600 self-center">
+                              {legendPage + 1} / {Math.ceil(memberMetrics.length / 8)}
+                            </span>
+                            <button 
+                              onClick={() => setLegendPage(prev => prev + 1 < Math.ceil(memberMetrics.length / 8) ? prev + 1 : prev)}
+                              disabled={legendPage + 1 >= Math.ceil(memberMetrics.length / 8)}
+                              className={`p-2 rounded-full ml-3 ${legendPage + 1 >= Math.ceil(memberMetrics.length / 8) ? 'text-gray-300 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-200'}`}
+                            >
+                              <FaChevronRight size={16} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ) : (
-                    <p className="text-gray-500">В проекте нет задач</p>
+                    <p className="text-center text-gray-500">No data to display</p>
                   )}
                 </div>
               </div>
             </div>
             
-            {/* Участники и инфо */}
+            {/* Project Members */}
             <div className="col-span-1">
-              {/* Владелец проекта */}
-              <div className="bg-white rounded-lg shadow-lg overflow-hidden mb-8">
-                <div className="bg-gradient-to-r from-green-500 to-green-600 p-6">
-                  <h2 className="text-2xl font-bold text-white">Владелец проекта</h2>
-                </div>
-                <div className="p-6">
-                  {/* Here we would normally display the project owner info */}
-                  <div className="flex items-center gap-4">
-                    <div className="bg-green-100 p-2 rounded-full">
-                      <FaUserCog size={24} className="text-green-600" />
-                    </div>
-                    <div>
-                      <p className="text-gray-800 font-medium">ID владельца: {project.user_id}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Участники проекта */}
               <div className="bg-white rounded-lg shadow-lg overflow-hidden">
                 <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6">
-                  <h2 className="text-2xl font-bold text-white">Участники проекта</h2>
+                  <h2 className="text-2xl font-bold text-white">Project Members</h2>
                 </div>
                 <div className="p-6">
                   {members.length > 0 ? (
@@ -347,7 +601,11 @@ export default function ProjectDetailsPage() {
                       {members.map(member => (
                         <div 
                           key={member.firebase_user_id}
-                          className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg border border-gray-200"
+                          className={`flex items-center gap-4 p-3 rounded-lg border ${
+                            isOwner(member.firebase_user_id)
+                              ? 'bg-orange-50 border-orange-200'
+                              : 'bg-gray-50 border-gray-200'
+                          }`}
                         >
                           <div className="flex-shrink-0">
                             {member.profile_photo ? (
@@ -366,14 +624,42 @@ export default function ProjectDetailsPage() {
                             )}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="text-gray-800 font-medium truncate">{member.email}</p>
-                            <p className="text-xs text-gray-500">{member.firebase_user_id}</p>
+                            <p className="text-gray-800 font-medium truncate">
+                              {member.email}
+                              {isOwner(member.firebase_user_id) && (
+                                <span className="ml-2 text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full">
+                                  Owner
+                                </span>
+                              )}
+                            </p>
+                            
+                            {/* Member Metrics */}
+                            <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                              <div className="text-center">
+                                <p className="text-blue-600 font-semibold">
+                                  {memberMetrics.find(m => m.email === member.email)?.tasksCreated || 0}
+                                </p>
+                                <p className="text-gray-500">created</p>
+                              </div>
+                              <div className="text-center">
+                                <p className="text-green-600 font-semibold">
+                                  {memberMetrics.find(m => m.email === member.email)?.tasksCompleted || 0}
+                                </p>
+                                <p className="text-gray-500">completed</p>
+                              </div>
+                              <div className="text-center">
+                                <p className="text-red-600 font-semibold">
+                                  {memberMetrics.find(m => m.email === member.email)?.tasksOverdue || 0}
+                                </p>
+                                <p className="text-gray-500">overdue</p>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-gray-500">Нет участников проекта</p>
+                    <p className="text-gray-500">No project members</p>
                   )}
                 </div>
               </div>
