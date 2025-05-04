@@ -78,7 +78,9 @@ type Task = {
   updated_at: string;
   creator_id?: string;
   creator_email?: string;
-  completed?: boolean;  // New field for tracking completion status
+  completed?: boolean;  // Field for tracking completion status
+  completed_by?: number | null; // ID of the user who completed the task
+  completed_by_email?: string | null; // Email of the user who completed the task
 };
 
 export default function HomePage() {
@@ -488,14 +490,22 @@ export default function HomePage() {
 
   const handleUpdateTask = async (task: Task, newData: Partial<Task>) => {
     try {
+      // If marking as completed, include the current user's ID
+      let requestBody: any = {
+        ...task,
+        ...newData
+      };
+      
+      // If marking as completed, add user_id for the backend to know who completed it
+      if (newData.completed === true && auth.currentUser) {
+        requestBody.user_id = auth.currentUser.uid;
+      }
+      
       const res = await authFetch(
         `http://localhost:8000/api/tasks/${task.id}/`,
         {
           method: "PUT",
-          body: JSON.stringify({
-            ...task,
-            ...newData
-          }),
+          body: JSON.stringify(requestBody)
         }
       );
       
@@ -1169,6 +1179,36 @@ export default function HomePage() {
                         {columns.find(col => col.id === selectedTask.column)?.name || "Unknown"}
                       </p>
                     </div>
+                    
+                    {/* Creator information */}
+                    <div className="col-span-2 flex items-center gap-3 mt-2 pt-3 border-t border-gray-200">
+                      <div className="flex-shrink-0">
+                        <TaskCreatorAvatar 
+                          creatorEmail={selectedTask.creator_email} 
+                          currentPhotoURL={currentPhotoURL}
+                        />
+                      </div>
+                      <div>
+                        <span className="text-xs text-gray-500">Created by:</span>
+                        <p className="text-sm text-gray-700 font-medium">{selectedTask.creator_email}</p>
+                      </div>
+                    </div>
+                    
+                    {/* Completed by information - only show when task is completed */}
+                    {selectedTask.completed && selectedTask.completed_by_email && (
+                      <div className="col-span-2 flex items-center gap-3 mt-2 pt-3 border-t border-gray-200">
+                        <div className="flex-shrink-0">
+                          <TaskCreatorAvatar 
+                            creatorEmail={selectedTask.completed_by_email} 
+                            currentPhotoURL={currentPhotoURL}
+                          />
+                        </div>
+                        <div>
+                          <span className="text-xs text-gray-500">Completed by:</span>
+                          <p className="text-sm text-gray-700 font-medium">{selectedTask.completed_by_email}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
