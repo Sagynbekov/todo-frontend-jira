@@ -28,6 +28,7 @@ interface Column {
 }
 
 interface Task {
+  completed: boolean;
   id: number;
   title: string;
   description: string;
@@ -164,34 +165,25 @@ export default function ProjectDetailsPage() {
   // Remove old implementation of generateMemberMetrics and insert this
 
   const generateMemberMetrics = (members: Member[], tasks: Task[]) => {
-    console.log('Generating metrics for members:', members);
-    console.log('Available tasks:', tasks);
-
-    // Calculate metrics by email, without removing users with zero tasks
     const metrics: MemberMetrics[] = members.map(member => {
       const memberEmail = member.email.toLowerCase().trim();
-
-      // Count only by creator_email
+  
+      // Все задачи, созданные этим пользователем
       const createdTasks = tasks.filter(task =>
         task.creator_email?.toLowerCase().trim() === memberEmail
       );
-      console.log(`Tasks created by ${member.email}:`, createdTasks.length);
-
-      // Find "completed" column by name (or last one)
-      const completedColumnId = columns.find(col =>
-        /заверш|выполн|done|complet/i.test(col.name)
-      )?.id ?? columns[columns.length - 1]?.id;
-
-      const completedTasks = completedColumnId
-        ? createdTasks.filter(task => task.column === completedColumnId)
-        : [];
-      console.log(`Completed tasks for ${member.email}:`, completedTasks.length);
-
-      // Overdue — test (you can replace with real logic)
+  
+      // Все выполненные задачи этого пользователя
+      const completedTasks = tasks.filter(task =>
+        task.creator_email?.toLowerCase().trim() === memberEmail
+        && task.completed === true
+      );
+  
+      // (тестовые) просроченные — оставляем как есть
       const overdueTasks = Math.floor(
         Math.random() * Math.max(1, createdTasks.length - completedTasks.length)
       );
-
+  
       return {
         email: member.email,
         tasksCreated: createdTasks.length,
@@ -199,21 +191,10 @@ export default function ProjectDetailsPage() {
         tasksOverdue: overdueTasks
       };
     });
-
-    // Always set real metrics, even if someone has zero tasks
-    if (metrics.length > 0) {
-      setMemberMetrics(metrics);
-    } else {
-      // fallback: test data if there are no tasks at all
-      const testMetrics = members.map((member, idx) => ({
-        email: member.email,
-        tasksCreated: (idx + 1) * 2,
-        tasksCompleted: idx + 1,
-        tasksOverdue: Math.max(0, idx)
-      }));
-      setMemberMetrics(testMetrics);
-    }
+  
+    setMemberMetrics(metrics.length ? metrics : /* ваш fallback */ []);
   };
+  
 
   // Function to prepare chart data based on selected type
   const getChartData = () => {
