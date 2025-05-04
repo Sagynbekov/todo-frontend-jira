@@ -116,9 +116,9 @@ export default function HomePage() {
   const [addingTaskToColumn, setAddingTaskToColumn] = useState<number | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-
-
   const [currentPhotoURL, setCurrentPhotoURL] = useState<string | null>(null);
+  // Add search state
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(u => {
@@ -610,6 +610,38 @@ export default function HomePage() {
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editingTaskTitle, setEditingTaskTitle] = useState("");
 
+  // New function to filter tasks based on search query
+  const getFilteredTasks = (columnId: number): Task[] => {
+    if (!searchQuery.trim() || !tasks[columnId]) {
+      return tasks[columnId] || [];
+    }
+    
+    const query = searchQuery.toLowerCase().trim();
+    return tasks[columnId].filter(task => 
+      task.title.toLowerCase().includes(query) || 
+      (task.description && task.description.toLowerCase().includes(query))
+    );
+  };
+
+  // Function to check if any tasks match the search
+  const hasMatchingTasks = (): boolean => {
+    if (!searchQuery.trim()) return true;
+    
+    return Object.keys(tasks).some(columnId => {
+      const columnTasks = tasks[parseInt(columnId)] || [];
+      const query = searchQuery.toLowerCase().trim();
+      return columnTasks.some(task => 
+        task.title.toLowerCase().includes(query) || 
+        (task.description && task.description.toLowerCase().includes(query))
+      );
+    });
+  };
+
+  // Function to clear search
+  const clearSearch = () => {
+    setSearchQuery("");
+  };
+
   // Функция для обработки окончания перетаскивания
   const handleDragEnd = async (result: any) => {
     const { destination, source, draggableId } = result;
@@ -835,11 +867,24 @@ export default function HomePage() {
 
           {/* Search + Add User */}
           <div className="flex items-center gap-2 mb-6">
-            <input
-              type="text"
-              placeholder="Search board"
-              className="w-64 p-2 text-sm text-black rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-md transition-all duration-200"
-            />
+            <div className="relative w-64">
+              <input
+                type="text"
+                placeholder="Search tasks..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full p-2 text-sm text-black rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-md transition-all duration-200 pr-8"
+              />
+              {searchQuery && (
+                <button 
+                  onClick={clearSearch}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  title="Clear search"
+                >
+                  <FaTimes size={14} />
+                </button>
+              )}
+            </div>
             
             {/* Add User button - only visible to project owner */}
             {selectedProject && selectedProject.user_id === auth.currentUser?.uid ? (
@@ -961,8 +1006,13 @@ export default function HomePage() {
                                     <p className="text-sm">No tasks yet</p>
                                     <p className="text-xs mt-1">Click below to add a new task</p>
                                   </div>
+                                ) : searchQuery && getFilteredTasks(col.id).length === 0 ? (
+                                  <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                                    <p className="text-sm">No matching tasks</p>
+                                    <p className="text-xs mt-1">Try a different search term</p>
+                                  </div>
                                 ) : (
-                                  tasks[col.id].map((task, index) => (
+                                  getFilteredTasks(col.id).map((task, index) => (
                                     <Draggable 
                                       key={`task-${task.id}`} 
                                       draggableId={`task-${task.id}`} 
@@ -1519,6 +1569,22 @@ export default function HomePage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Search result indicator */}
+      {searchQuery.trim() && (
+        <div className="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg px-4 py-2 flex items-center gap-2 border border-gray-200 z-40">
+          <FaSearch className="text-indigo-500" />
+          <span className="font-medium">
+            {hasMatchingTasks() ? 'Filtering results' : 'No matching tasks'}
+          </span>
+          <button 
+            onClick={clearSearch}
+            className="ml-2 text-gray-400 hover:text-gray-600"
+          >
+            <FaTimes size={14} />
+          </button>
         </div>
       )}
 
