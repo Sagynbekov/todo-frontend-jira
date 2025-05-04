@@ -15,6 +15,7 @@ import {
   FaSearch,
   FaUserMinus,
 } from "react-icons/fa";
+import { DragDropContext, Droppable, Draggable, DroppableProvided, DroppableStateSnapshot, DraggableProvided, DraggableStateSnapshot } from "react-beautiful-dnd";
 import { authFetch, waitForAuth } from "../lib/auth-utils";
 import { auth } from "../lib/firebase";
 import { syncFirebaseUserToBackend } from "../lib/firebase-sync";
@@ -609,6 +610,89 @@ export default function HomePage() {
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editingTaskTitle, setEditingTaskTitle] = useState("");
 
+  // Функция для обработки окончания перетаскивания
+  const handleDragEnd = async (result: any) => {
+    const { destination, source, draggableId } = result;
+    
+    // Выход, если нет места назначения (перетаскивание отменено пользователем)
+    if (!destination) return;
+    
+    // Выход, если позиция не изменилась
+    if (
+      destination.droppableId === source.droppableId &&
+      destination.index === source.index
+    ) return;
+    
+    // Получаем ID задачи и ID колонок
+    const taskId = parseInt(draggableId.split('-')[1]);
+    const sourceColumnId = parseInt(source.droppableId.split('-')[1]);
+    const destinationColumnId = parseInt(destination.droppableId.split('-')[1]);
+    const task = tasks[sourceColumnId]?.find(t => t.id === taskId);
+    
+    if (!task) {
+      console.error("Task not found:", taskId);
+      return;
+    }
+    
+    // Создаем оптимистичное обновление интерфейса
+    // 1. Удаляем задачу из исходной колонки
+    const sourceTasksCopy = [...(tasks[sourceColumnId] || [])];
+    const [removedTask] = sourceTasksCopy.splice(source.index, 1);
+    
+    // 2. Добавляем задачу в колонку назначения
+    const destinationTasksCopy = [...(tasks[destinationColumnId] || [])];
+    destinationTasksCopy.splice(destination.index, 0, {
+      ...removedTask,
+      column: destinationColumnId  // Обновляем ID колонки в задаче
+    });
+    
+    // 3. Обновляем локальное состояние (оптимистично)
+    setTasks({
+      ...tasks,
+      [sourceColumnId]: sourceTasksCopy,
+      [destinationColumnId]: destinationTasksCopy
+    });
+    
+    try {
+      // Обновляем позицию задачи на сервере
+      const updatedTaskData = {
+        ...task,
+        column: destinationColumnId,
+        order: destination.index  // Новый порядок в колонке
+      };
+      
+      // Вызов API для обновления задачи
+      const response = await authFetch(
+        `http://localhost:8000/api/tasks/${taskId}/`,
+        {
+          method: "PUT",
+          body: JSON.stringify(updatedTaskData)
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      
+      // Получаем обновленную задачу с сервера
+      const updatedTask: Task = await response.json();
+      
+      // Если нужно, можно обновить локальное состояние с данными с сервера
+      // (но мы уже сделали оптимистичное обновление)
+    } catch (error) {
+      console.error("Error updating task position:", error);
+      
+      // В случае ошибки, восстанавливаем исходное состояние
+      // Можно повторно загрузить все задачи или восстановить из кэша
+      if (sourceColumnId === destinationColumnId) {
+        fetchTasks(sourceColumnId);
+      } else {
+        fetchTasks(sourceColumnId);
+        fetchTasks(destinationColumnId);
+      }
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
@@ -805,276 +889,301 @@ export default function HomePage() {
           {/* Kanban Board */}
           {selectedProject ? (
             <div className="overflow-x-auto pb-8 flex-1">
-              <div className="flex gap-6 min-h-[calc(100vh-280px)] inline-flex">
-                {isLoadingColumns ? (
-                  <div className="flex items-center justify-center w-full">
-                    <p className="text-gray-500">Loading columns...</p>
-                  </div>
-                ) : (
-                  <>
-                    {columns.map((col) => (
-                      <div
-                        key={col.id}
-                        className="bg-white shadow-xl rounded-lg w-72 flex-shrink-0 flex flex-col h-[calc(100vh-280px)] border-2 border-indigo-100 hover:border-indigo-300 transition-all duration-200 hover:transform hover:scale-102 hover:-translate-y-1"
-                      >
-                        <div className="p-4 font-bold border-b-2 border-indigo-100 text-indigo-800 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-t-lg flex justify-between items-center">
-                          {editingColumnId === col.id ? (
-                            <input
-                              type="text"
-                              value={editingColumnName}
-                              onChange={(e) => setEditingColumnName(e.target.value)}
-                              onBlur={() => handleEditColumn(col.id)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") handleEditColumn(col.id);
-                                if (e.key === "Escape") {
-                                  setEditingColumnId(null);
-                                  setEditingColumnName("");
-                                }
-                              }}
-                              className="text-lg p-1 w-36 rounded border border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-indigo-800"
-                              autoFocus
-                            />
-                          ) : (
-                            <>
-                              <span className="text-lg">{col.name}</span>
-                              <div className="flex items-center space-x-3">
-                                <span className="text-indigo-420 font-semibold px-2 py-1 bg-indigo-50 rounded-full text-sm">
-                                  {tasks[col.id]?.length || 0}
-                                </span>
-                                <button
-                                  onClick={() => {
-                                    setEditingColumnId(col.id);
-                                    setEditingColumnName(col.name);
-                                  }}
-                                  className="text-indigo-500 hover:text-indigo-700 transition-colors"
-                                  title="Edit column name"
-                                >
-                                  <FaEdit size={18} />
-                                </button>
-                                <button 
-                                  onClick={() => handleDeleteColumn(col.id)} 
-                                  className="text-red-500 hover:text-red-700 transition-colors"
-                                  title="Delete column"
-                                >
-                                  <FaTrash size={18} />
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                        <div className="flex-1 p-4 space-y-4 overflow-y-auto custom-scrollbar">
-                          {!tasks[col.id] || tasks[col.id].length === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                              <p className="text-sm">No tasks yet</p>
-                              <p className="text-xs mt-1">Click below to add a new task</p>
-                            </div>
-                          ) : (
-                            tasks[col.id].map(task => (
+              <DragDropContext onDragEnd={handleDragEnd}>
+                <div className="flex gap-6 min-h-[calc(100vh-280px)] inline-flex">
+                  {isLoadingColumns ? (
+                    <div className="flex items-center justify-center w-full">
+                      <p className="text-gray-500">Loading columns...</p>
+                    </div>
+                  ) : (
+                    <>
+                      {columns.map((col) => (
+                        <div
+                          key={col.id}
+                          className="bg-white shadow-xl rounded-lg w-72 flex-shrink-0 flex flex-col h-[calc(100vh-280px)] border-2 border-indigo-100 hover:border-indigo-300 transition-all duration-200 hover:transform hover:scale-102 hover:-translate-y-1"
+                        >
+                          <div className="p-4 font-bold border-b-2 border-indigo-100 text-indigo-800 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-t-lg flex justify-between items-center">
+                            {editingColumnId === col.id ? (
+                              <input
+                                type="text"
+                                value={editingColumnName}
+                                onChange={(e) => setEditingColumnName(e.target.value)}
+                                onBlur={() => handleEditColumn(col.id)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") handleEditColumn(col.id);
+                                  if (e.key === "Escape") {
+                                    setEditingColumnId(null);
+                                    setEditingColumnName("");
+                                  }
+                                }}
+                                className="text-lg p-1 w-36 rounded border border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-indigo-800"
+                                autoFocus
+                              />
+                            ) : (
+                              <>
+                                <span className="text-lg">{col.name}</span>
+                                <div className="flex items-center space-x-3">
+                                  <span className="text-indigo-420 font-semibold px-2 py-1 bg-indigo-50 rounded-full text-sm">
+                                    {tasks[col.id]?.length || 0}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      setEditingColumnId(col.id);
+                                      setEditingColumnName(col.name);
+                                    }}
+                                    className="text-indigo-500 hover:text-indigo-700 transition-colors"
+                                    title="Edit column name"
+                                  >
+                                    <FaEdit size={18} />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteColumn(col.id)} 
+                                    className="text-red-500 hover:text-red-700 transition-colors"
+                                    title="Delete column"
+                                  >
+                                    <FaTrash size={18} />
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                          <Droppable droppableId={`column-${col.id}`}>
+                            {(provided: DroppableProvided, snapshot: DroppableStateSnapshot) => (
                               <div 
-                                key={task.id}
-                                className={`p-4 rounded-lg shadow-md hover:shadow-lg border-l-4 ${
-                                  task.completed 
-                                    ? 'bg-gray-300 border-gray-600 opacity-100' 
-                                    : 'bg-white border-indigo-400'
-                                } cursor-pointer transition-all duration-200 transform hover:-translate-y-1 group ${
-                                  expandedTaskId === task.id ? 'z-10 relative' : ''
+                                className={`flex-1 p-4 space-y-4 overflow-y-auto custom-scrollbar ${
+                                  snapshot.isDraggingOver ? 'bg-indigo-50' : ''
                                 }`}
-                                onClick={(e) => {
-                                  // Only toggle expanded state or open details if we're not currently editing
-                                  if (editingTaskId !== task.id) {
-                                    // Toggle expanded state on first click
-                                    setExpandedTaskId(prev => prev === task.id ? null : task.id);
-                                  }
-                                }}
-                                onDoubleClick={(e) => {
-                                  // Only open the details modal on double click if we're not editing
-                                  if (editingTaskId !== task.id) {
-                                    setSelectedTask(task);
-                                  }
-                                }}
+                                ref={provided.innerRef}
+                                {...provided.droppableProps}
                               >
-                                <div className="flex justify-between">
-                                  {editingTaskId === task.id ? (
+                                {!tasks[col.id] || tasks[col.id].length === 0 ? (
+                                  <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                                    <p className="text-sm">No tasks yet</p>
+                                    <p className="text-xs mt-1">Click below to add a new task</p>
+                                  </div>
+                                ) : (
+                                  tasks[col.id].map((task, index) => (
+                                    <Draggable 
+                                      key={`task-${task.id}`} 
+                                      draggableId={`task-${task.id}`} 
+                                      index={index}
+                                    >
+                                      {(provided: DraggableProvided, snapshot: DraggableStateSnapshot) => (
+                                        <div 
+                                          ref={provided.innerRef}
+                                          {...provided.draggableProps}
+                                          {...provided.dragHandleProps}
+                                          className={`p-4 rounded-lg shadow-md ${
+                                            snapshot.isDragging ? 'opacity-75 shadow-lg scale-105' : ''
+                                          } ${
+                                            task.completed 
+                                              ? 'bg-gray-300 border-l-4 border-gray-600 opacity-100' 
+                                              : 'bg-white border-l-4 border-indigo-400'
+                                          } cursor-pointer transition-all duration-200 transform hover:-translate-y-1 group ${
+                                            expandedTaskId === task.id ? 'z-10 relative' : ''
+                                          }`}
+                                          onClick={(e) => {
+                                            // Only toggle expanded state or open details if we're not currently editing
+                                            if (editingTaskId !== task.id) {
+                                              // Toggle expanded state on first click
+                                              setExpandedTaskId(prev => prev === task.id ? null : task.id);
+                                            }
+                                          }}
+                                          onDoubleClick={(e) => {
+                                            // Only open the details modal on double click if we're not editing
+                                            if (editingTaskId !== task.id) {
+                                              setSelectedTask(task);
+                                            }
+                                          }}
+                                        >
+                                          <div className="flex justify-between">
+                                            {editingTaskId === task.id ? (
+                                              <input
+                                                type="text"
+                                                value={editingTaskTitle}
+                                                onChange={(e) => setEditingTaskTitle(e.target.value)}
+                                                onBlur={() => {
+                                                  if (editingTaskTitle.trim()) {
+                                                    handleUpdateTask(task, { title: editingTaskTitle.trim() });
+                                                  }
+                                                  setEditingTaskId(null);
+                                                }}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === "Enter" && editingTaskTitle.trim()) {
+                                                    handleUpdateTask(task, { title: editingTaskTitle.trim() });
+                                                    setEditingTaskId(null);
+                                                  }
+                                                  if (e.key === "Escape") {
+                                                    setEditingTaskId(null);
+                                                  }
+                                                }}
+                                                className="w-full p-1 text-sm rounded border border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-gray-700"
+                                                autoFocus
+                                              />
+                                            ) : (
+                                              <p 
+                                                className={`text-gray-700 font-medium break-words pr-2 w-full ${
+                                                  expandedTaskId === task.id 
+                                                    ? '' 
+                                                    : 'line-clamp-2 overflow-hidden text-ellipsis'
+                                                } ${task.completed ? 'line-through text-gray-400' : ''}`}
+                                              >
+                                                {task.title}
+                                              </p>
+                                            )}
+                                            <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
+                                              <button 
+                                                onClick={(e) => {
+                                                  e.stopPropagation(); // Prevent card click handling
+                                                  setEditingTaskId(task.id);
+                                                  setEditingTaskTitle(task.title);
+                                                }}
+                                                className="text-indigo-400 hover:text-indigo-600 mr-2 flex-shrink-0"
+                                                title="Edit task"
+                                              >
+                                                <FaEdit size={12} />
+                                              </button>
+                                              <button 
+                                                onClick={(e) => {
+                                                  e.stopPropagation(); // Prevent card click handling
+                                                  handleDeleteTask(task.id, col.id);
+                                                }}
+                                                className="text-red-400 hover:text-red-600 flex-shrink-0"
+                                                title="Delete task"
+                                              >
+                                                <FaTrash size={12} />
+                                              </button>
+                                            </div>
+                                          </div>
+                                          <div className="flex justify-between items-center mt-3">
+                                            <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full truncate max-w-[80px]">
+                                              {new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                            </span>
+                                            <div className="flex items-center space-x-2">
+                                              {/* Task owner avatar - use the dedicated component */}
+                                              <TaskCreatorAvatar 
+                                                creatorEmail={task.creator_email}
+                                                currentPhotoURL={currentPhotoURL}
+                                              />
+                                              
+                                              {/* Task detail info button */}
+                                              <button 
+                                                onClick={(e) => {
+                                                  e.stopPropagation(); // Prevent card click handling
+                                                  setSelectedTask(task); // Open modal
+                                                }}
+                                                className="h-7 w-7 rounded-full bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors flex items-center justify-center shadow-sm"
+                                                title="View details"
+                                              >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </Draggable>
+                                  ))
+                                )}
+                                {provided.placeholder}
+                                {addingTaskToColumn === col.id && (
+                                  <div className="p-4 bg-white rounded-lg shadow-md border-l-4 border-indigo-400 hover:border-indigo-500 transition-all duration-200">
                                     <input
                                       type="text"
-                                      value={editingTaskTitle}
-                                      onChange={(e) => setEditingTaskTitle(e.target.value)}
-                                      onBlur={() => {
-                                        if (editingTaskTitle.trim()) {
-                                          handleUpdateTask(task, { title: editingTaskTitle.trim() });
-                                        }
-                                        setEditingTaskId(null);
-                                      }}
+                                      value={newTaskTitle}
+                                      onChange={(e) => setNewTaskTitle(e.target.value)}
+                                      onBlur={() => handleAddTask(col.id)}
                                       onKeyDown={(e) => {
-                                        if (e.key === "Enter" && editingTaskTitle.trim()) {
-                                          handleUpdateTask(task, { title: editingTaskTitle.trim() });
-                                          setEditingTaskId(null);
-                                        }
-                                        if (e.key === "Escape") {
-                                          setEditingTaskId(null);
-                                        }
+                                        if (e.key === "Enter") handleAddTask(col.id);
+                                        if (e.key === "Escape") setAddingTaskToColumn(null);
                                       }}
-                                      className="w-full p-1 text-sm rounded border border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-gray-700"
+                                      placeholder="Enter task title..."
+                                      className="w-full p-2.5 text-sm rounded border border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-indigo-50 text-indigo-700 placeholder-indigo-300 shadow-inner transition-all duration-200"
                                       autoFocus
                                     />
-                                  ) : (
-                                    <p 
-                                      className={`text-gray-700 font-medium break-words pr-2 w-full ${
-                                        expandedTaskId === task.id 
-                                          ? '' 
-                                          : 'line-clamp-2 overflow-hidden text-ellipsis'
-                                      } ${task.completed ? 'line-through text-gray-400' : ''}`}
-                                    >
-                                      {task.title}
-                                    </p>
-                                  )}
-                                  <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation(); // Prevent card click handling
-                                        setEditingTaskId(task.id);
-                                        setEditingTaskTitle(task.title);
-                                      }}
-                                      className="text-indigo-400 hover:text-indigo-600 mr-2 flex-shrink-0"
-                                      title="Edit task"
-                                    >
-                                      <FaEdit size={12} />
-                                    </button>
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation(); // Prevent card click handling
-                                        handleDeleteTask(task.id, col.id);
-                                      }}
-                                      className="text-red-400 hover:text-red-600 flex-shrink-0"
-                                      title="Delete task"
-                                    >
-                                      <FaTrash size={12} />
-                                    </button>
+                                    <div className="flex justify-end mt-2 space-x-2">
+                                      <button 
+                                        onClick={() => setAddingTaskToColumn(null)}
+                                        className="px-3 py-1 text-xs rounded-md text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button 
+                                        onClick={() => handleAddTask(col.id)}
+                                        className="px-3 py-1 text-xs rounded-md bg-indigo-500 text-white hover:bg-indigo-600 transition-colors duration-200"
+                                      >
+                                        Add
+                                      </button>
+                                    </div>
                                   </div>
-                                </div>
-                                <div className="flex justify-between items-center mt-3">
-                                  <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full truncate max-w-[80px]">
-                                    {new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                  </span>
-                                  <div className="flex items-center space-x-2">
-                                    {/* Task owner avatar - use the dedicated component */}
-                                    <TaskCreatorAvatar 
-                                      creatorEmail={task.creator_email}
-                                      // currentPhotoURL={auth.currentUser?.photoURL || null}
-                                      currentPhotoURL={currentPhotoURL}
-                                    />
-                                    
-                                    {/* Task detail info button */}
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation(); // Prevent card click handling
-                                        setSelectedTask(task); // Open modal
-                                      }}
-                                      className="h-7 w-7 rounded-full bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors flex items-center justify-center shadow-sm"
-                                      title="View details"
-                                    >
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                      </svg>
-                                    </button>
-                                  </div>
-                                </div>
+                                )}
                               </div>
-                            ))
-                          )}
-                          {addingTaskToColumn === col.id && (
-                          <div className="p-4 bg-white rounded-lg shadow-md border-l-4 border-indigo-400 hover:border-indigo-500 transition-all duration-200">
-                            <input
-                              type="text"
-                              value={newTaskTitle}
-                              onChange={(e) => setNewTaskTitle(e.target.value)}
-                              onBlur={() => handleAddTask(col.id)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") handleAddTask(col.id);
-                                if (e.key === "Escape") setAddingTaskToColumn(null);
-                              }}
-                              placeholder="Enter task title..."
-                              className="w-full p-2.5 text-sm rounded border border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-indigo-50 text-indigo-700 placeholder-indigo-300 shadow-inner transition-all duration-200"
-                              autoFocus
-                            />
-                            <div className="flex justify-end mt-2 space-x-2">
-                              <button 
-                                onClick={() => setAddingTaskToColumn(null)}
-                                className="px-3 py-1 text-xs rounded-md text-gray-600 hover:bg-gray-100 transition-colors duration-200"
-                              >
-                                Cancel
-                              </button>
-                              <button 
-                                onClick={() => handleAddTask(col.id)}
-                                className="px-3 py-1 text-xs rounded-md bg-indigo-500 text-white hover:bg-indigo-600 transition-colors duration-200"
-                              >
-                                Add
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                        </div>
-                        <button 
-                          onClick={() => {
-                            setAddingTaskToColumn(col.id);
-                            setNewTaskTitle("");
-                          }}
-                          className="mt-auto p-3 text-sm text-indigo-600 hover:bg-indigo-50 border-t-2 border-indigo-100 font-semibold flex items-center justify-center transition-all duration-200 rounded-b-lg"
-                        >
-                          <FaPlus size={12} className="mr-2" /> Add Task
-                        </button>
-                      </div>
-                    ))}
-
-                    {/* "+ New Column" button */}
-                    {!isAddingColumn ? (
-                      <button
-                        onClick={() => setIsAddingColumn(true)}
-                        className="flex items-center justify-center w-72 flex-shrink-0 h-20 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg hover:from-blue-100 hover:to-indigo-100 transition-all duration-300 border-2 border-dashed border-indigo-300 text-indigo-600 hover:text-indigo-800 mt-1 shadow-md hover:shadow-lg"
-                      >
-                        <FaPlus size={18} className="mr-2" />
-                        <span className="font-bold text-lg">Add Column</span>
-                      </button>
-                    ) : (
-                      <div className="w-72 flex-shrink-0 bg-white shadow-xl rounded-lg border-2 border-indigo-100 p-4 mt-1">
-                        <h3 className="text-lg font-bold text-indigo-800 mb-3">New Column</h3>
-                        <input
-                          type="text"
-                          value={newColumnName}
-                          onChange={(e) => setNewColumnName(e.target.value)}
-                          placeholder="Column name"
-                          className="w-full p-2.5 text-sm rounded border border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-indigo-50 text-indigo-700 placeholder-indigo-300 shadow-inner transition-all duration-200 mb-3"
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleAddColumn();
-                            if (e.key === "Escape") {
-                              setIsAddingColumn(false);
-                              setNewColumnName("");
-                            }
-                          }}
-                        />
-                        <div className="flex justify-end space-x-2">
+                            )}
+                          </Droppable>
                           <button 
                             onClick={() => {
-                              setIsAddingColumn(false);
-                              setNewColumnName("");
+                              setAddingTaskToColumn(col.id);
+                              setNewTaskTitle("");
                             }}
-                            className="px-3 py-1.5 text-xs rounded-md text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+                            className="mt-auto p-3 text-sm text-indigo-600 hover:bg-indigo-50 border-t-2 border-indigo-100 font-semibold flex items-center justify-center transition-all duration-200 rounded-b-lg"
                           >
-                            Cancel
-                          </button>
-                          <button 
-                            onClick={() => handleAddColumn()}
-                            className="px-3 py-1.5 text-xs rounded-md bg-indigo-500 text-white hover:bg-indigo-600 transition-colors duration-200"
-                          >
-                            Add
+                            <FaPlus size={12} className="mr-2" /> Add Task
                           </button>
                         </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
+                      ))}
+
+                      {/* "+ New Column" button */}
+                      {!isAddingColumn ? (
+                        <button
+                          onClick={() => setIsAddingColumn(true)}
+                          className="flex items-center justify-center w-72 flex-shrink-0 h-20 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg hover:from-blue-100 hover:to-indigo-100 transition-all duration-300 border-2 border-dashed border-indigo-300 text-indigo-600 hover:text-indigo-800 mt-1 shadow-md hover:shadow-lg"
+                        >
+                          <FaPlus size={18} className="mr-2" />
+                          <span className="font-bold text-lg">Add Column</span>
+                        </button>
+                      ) : (
+                        <div className="w-72 flex-shrink-0 bg-white shadow-xl rounded-lg border-2 border-indigo-100 p-4 mt-1">
+                          <h3 className="text-lg font-bold text-indigo-800 mb-3">New Column</h3>
+                          <input
+                            type="text"
+                            value={newColumnName}
+                            onChange={(e) => setNewColumnName(e.target.value)}
+                            placeholder="Column name"
+                            className="w-full p-2.5 text-sm rounded border border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-indigo-50 text-indigo-700 placeholder-indigo-300 shadow-inner transition-all duration-200 mb-3"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleAddColumn();
+                              if (e.key === "Escape") {
+                                setIsAddingColumn(false);
+                                setNewColumnName("");
+                              }
+                            }}
+                          />
+                          <div className="flex justify-end space-x-2">
+                            <button 
+                              onClick={() => {
+                                setIsAddingColumn(false);
+                                setNewColumnName("");
+                              }}
+                              className="px-3 py-1.5 text-xs rounded-md text-gray-600 hover:bg-gray-100 transition-colors duration-200"
+                            >
+                              Cancel
+                            </button>
+                            <button 
+                              onClick={() => handleAddColumn()}
+                              className="px-3 py-1.5 text-xs rounded-md bg-indigo-500 text-white hover:bg-indigo-600 transition-colors duration-200"
+                              disabled={!newColumnName.trim()}
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </DragDropContext>
             </div>
           ) : (
             <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
