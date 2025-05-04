@@ -70,27 +70,29 @@ export default function MyCabinetPage() {
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-        setDisplayName(currentUser.displayName || currentUser.email?.split('@')[0] || "User");
-        
-        // Make sure we're handling the photo URL correctly
-        if (currentUser.photoURL) {
-          console.log("Current photo URL:", currentUser.photoURL);
-          setProfilePhotoURL(currentUser.photoURL);
-        } else {
-          setProfilePhotoURL(null);
-        }
-        
-        fetchUserStats();
-      } else {
+      if (!currentUser) {
         router.push("/login");
+        return;
       }
+      setUser(currentUser);
+      setDisplayName(
+        currentUser.displayName ||
+        currentUser.email?.split("@")[0] ||
+        "User"
+      );
+      setProfilePhotoURL(currentUser.photoURL || null);
       setLoading(false);
     });
-
     return () => unsubscribe();
   }, [router]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchUserStats();
+    fetchTaskActivity();
+    fetchCompletedTaskActivity();
+  }, [user]);
+  
 
   const fetchUserStats = async () => {
     try {
