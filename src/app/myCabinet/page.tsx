@@ -323,55 +323,46 @@ export default function MyCabinetPage() {
 
   const fetchCompletedTaskActivity = async () => {
     if (!user) return;
-    
+  
     setLoadingCompletedTaskActivity(true);
     try {
       // Получаем все проекты пользователя
       const projectsResponse = await authFetch("http://localhost:8000/api/projects/");
       if (!projectsResponse.ok) throw new Error(`Error: ${projectsResponse.status}`);
       const projects = await projectsResponse.json();
-      
+  
       // Собираем данные по активности выполненных задач
-      const activityData: {[date: string]: number} = {};
-      
+      const activityData: { [date: string]: number } = {};
+  
       for (const project of projects) {
-        // Получаем все колонки проекта
-        const columnsResponse = await authFetch(`http://localhost:8000/api/columns/?project_id=${project.id}`);
-        if (!columnsResponse.ok) continue;
-        const columns = await columnsResponse.json();
-        
-        // Находим колонку "Завершено" или "Выполнено" или последнюю колонку
-        const completedColumn = columns.find((col: any) => 
-          /заверш|выполн|done|complet/i.test(col.name)
-        ) || columns[columns.length - 1];
-        
-        if (completedColumn) {
-          // Получаем задачи из колонки "Завершено"
-          const tasksResponse = await authFetch(`http://localhost:8000/api/tasks/?column_id=${completedColumn.id}`);
-          if (!tasksResponse.ok) continue;
-          const tasks = await tasksResponse.json();
-          
-          // Фильтруем задачи, созданные текущим пользователем
-          const userTasks = tasks.filter((task: any) => 
-            task.creator_email === user.email
+        // Получаем колонки проекта
+        const colsRes = await authFetch(`http://localhost:8000/api/columns/?project_id=${project.id}`);
+        if (!colsRes.ok) continue;
+        const cols = await colsRes.json();
+  
+        // Для каждой колонки загружаем таски и фильтруем по completed=true
+        for (const col of cols) {
+          const tasksRes = await authFetch(`http://localhost:8000/api/tasks/?column_id=${col.id}`);
+          if (!tasksRes.ok) continue;
+          const allTasks: any[] = await tasksRes.json();
+  
+          // Оставляем только свои и реально выполненные
+          const done = allTasks.filter(t =>
+            t.creator_email === user.email && t.completed === true
           );
-          
-          // Группируем задачи по дате обновления (когда они были перемещены в колонку "Завершено")
-          userTasks.forEach((task: any) => {
-            // Используем дату обновления как примерную дату завершения
-            const date = new Date(task.updated_at).toISOString().split('T')[0];
-            if (!activityData[date]) {
-              activityData[date] = 0;
-            }
-            activityData[date]++;
+  
+          // Группируем по дате updated_at
+          done.forEach(t => {
+            const day = new Date(t.updated_at).toISOString().split('T')[0];
+            activityData[day] = (activityData[day] || 0) + 1;
           });
         }
       }
-      
+  
       setCompletedTaskActivity(activityData);
-      setStats(prevStats => ({
-        ...prevStats,
-        completedTasks: Object.values(activityData).reduce((sum, count) => sum + count, 0)
+      setStats(prev => ({
+        ...prev,
+        completedTasks: Object.values(activityData).reduce((sum, v) => sum + v, 0)
       }));
     } catch (err) {
       console.error("Error fetching completed task activity:", err);
@@ -379,6 +370,7 @@ export default function MyCabinetPage() {
       setLoadingCompletedTaskActivity(false);
     }
   };
+  
 
   const toggleShowCompletedTaskActivity = () => {
     setShowCompletedTaskActivity(!showCompletedTaskActivity);
