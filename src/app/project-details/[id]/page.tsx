@@ -38,6 +38,8 @@ interface Task {
   updated_at: string;
   creator: string | null;
   creator_email: string | null;
+  completed_by?: number | null;  // ID of who completed the task
+  completed_by_email?: string | null; // Email of who completed the task
 }
 
 interface Member {
@@ -173,10 +175,11 @@ export default function ProjectDetailsPage() {
         task.creator_email?.toLowerCase().trim() === memberEmail
       );
   
-      // Все выполненные задачи этого пользователя
+      // Все выполненные задачи этого пользователем - теперь используем поле completed_by_email
+      // Учитываем задачи, которые пользователь выполнил (не создал, а именно выполнил)
       const completedTasks = tasks.filter(task =>
-        task.creator_email?.toLowerCase().trim() === memberEmail
-        && task.completed === true
+        task.completed === true && 
+        task.completed_by_email?.toLowerCase().trim() === memberEmail
       );
   
       // (тестовые) просроченные — оставляем как есть
@@ -192,7 +195,7 @@ export default function ProjectDetailsPage() {
       };
     });
   
-    setMemberMetrics(metrics.length ? metrics : /* ваш fallback */ []);
+    setMemberMetrics(metrics.length ? metrics : []);
   };
   
 
