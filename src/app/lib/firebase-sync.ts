@@ -1,65 +1,50 @@
 import { auth } from "./firebase";
+import { API_URL } from "./api-config";
 
 /**
  * При каждом успешном логине в Firebase вызывает 
  * создание пользователя в вашем Django-бэкенде или обновление существующего.
  */
-export async function syncFirebaseUserToBackend(): Promise<void> {
-  const user = auth.currentUser;
-  if (!user) {
-    console.warn("syncFirebaseUser: нет залогиненного пользователя");
-    return;
-  }
-
-  // принудительно обновляем токен, чтобы получить свежий
-  const token = await user.getIdToken(true);
-
+export const syncFirebaseUserToBackend = async () => {
   try {
-    // Сначала проверяем, существует ли пользователь
-    const checkResponse = await fetch(
-      `http://localhost:8000/api/firebase-users/?email=${encodeURIComponent(user.email || '')}`,
-      {
-        headers: {
-          "Authorization": `Bearer ${token}`,
-        },
-      }
-    );
-
-    if (checkResponse.ok) {
-      const users = await checkResponse.json();
-      
-      // Пользователь уже существует, не нужно создавать нового
-      if (users.length > 0) {
-        console.log("Пользователь уже существует в бэкенде, синхронизация не требуется");
-        return;
-      }
+    // Wait for Firebase auth to initialize and get the current user
+    const user = auth.currentUser;
+    if (!user) {
+      console.log("No user logged in");
+      return null;
     }
 
-    // Если пользователь не найден, создаем нового
-    const createResponse = await fetch("http://localhost:8000/api/firebase-users/", {
+    // Get the ID token from Firebase
+    const token = await user.getIdToken();
+
+    // Send the ID token to your backend
+    const response = await fetch(`${API_URL}/sync-user/`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
+        "Authorization": `Bearer ${token}`
       },
       body: JSON.stringify({
-        firebase_user_id: user.uid,
+        // Add any additional user info you want to sync here
+        // These fields should match what your backend expects
+        displayName: user.displayName,
         email: user.email,
+        photoURL: user.photoURL,
+        uid: user.uid,
       }),
     });
 
-    if (!createResponse.ok) {
-      const text = await createResponse.text();
-      console.error("Ошибка синхронизации FirebaseUser:", createResponse.status, text);
-      throw new Error(`Sync failed: ${createResponse.status}`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
     
-    console.log("Пользователь успешно синхронизирован с бэкендом");
+    const data = await response.json();
+    return data;
   } catch (error) {
-    console.error("Ошибка при синхронизации пользователя:", error);
-    // Не выбрасываем ошибку, чтобы не блокировать пользовательский опыт
+    console.error("Error syncing user to backend:", error);
+    throw error;
   }
-}
+};
 
 
 // src/lib/firebaseUsers.ts
