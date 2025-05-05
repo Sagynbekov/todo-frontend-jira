@@ -71,6 +71,7 @@ type Column = {
   order: number;
 };
 
+// Update the Task type to include deadline
 type Task = {
   id: number;
   title: string;
@@ -84,6 +85,7 @@ type Task = {
   completed?: boolean;  // Field for tracking completion status
   completed_by?: number | null; // ID of the user who completed the task
   completed_by_email?: string | null; // Email of the user who completed the task
+  deadline?: string | null; // New field for task deadline
 };
 
 export default function HomePage() {
@@ -128,6 +130,10 @@ export default function HomePage() {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [isDateFilterActive, setIsDateFilterActive] = useState(false);
+
+  // Add new state for deadline edit
+  const [newDeadline, setNewDeadline] = useState<string>("");
+  const [isDeadlineOpen, setIsDeadlineOpen] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(u => {
@@ -500,6 +506,8 @@ export default function HomePage() {
 
   const handleUpdateTask = async (task: Task, newData: Partial<Task>) => {
     try {
+      console.log(`Updating task ${task.id} with data:`, newData);
+      
       // If marking as completed, include the current user's ID
       let requestBody: any = {
         ...task,
@@ -521,18 +529,29 @@ export default function HomePage() {
       
       if (res.ok) {
         const updatedTask: Task = await res.json();
+        console.log("Task updated successfully:", updatedTask);
+        
         setTasks(prev => ({
           ...prev,
           [task.column]: prev[task.column].map(t => 
             t.id === task.id ? updatedTask : t
           )
         }));
-        setSelectedTask(updatedTask);
+        
+        // Update selected task if we're currently viewing it
+        if (selectedTask?.id === task.id) {
+          setSelectedTask(updatedTask);
+        }
+        
+        return updatedTask; // Return the updated task for chaining
       } else {
-        console.error("Failed to update task", await res.text());
+        const errorText = await res.text();
+        console.error(`Failed to update task (${res.status}):`, errorText);
+        throw new Error(`Failed to update task: ${errorText}`);
       }
     } catch (err) {
       console.error("Network error updating task:", err);
+      throw err; // Re-throw to allow handling by the caller
     }
   };
 
@@ -802,6 +821,39 @@ export default function HomePage() {
       }
     }
   };
+
+  // Function to check if a task is overdue
+  const isTaskOverdue = (task: Task): boolean => {
+    if (!task.deadline || task.completed) return false;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Set to beginning of day for fair comparison
+    
+    const deadline = new Date(task.deadline);
+    deadline.setHours(0, 0, 0, 0);
+    
+    return deadline < today;
+  };
+  
+  // Fix the deadline update function
+  const handleUpdateDeadline = async () => {
+    if (!selectedTask) return;
+    
+    try {
+      console.log(`Setting deadline to: ${newDeadline || 'null'}`);
+      
+      // Use the same update task method to ensure consistency
+      await handleUpdateTask(selectedTask, { 
+        deadline: newDeadline || null 
+      });
+      
+      setIsDeadlineOpen(false);
+    } catch (err) {
+      console.error('Error updating deadline:', err);
+      alert('Failed to update deadline. Please try again.');
+    }
+  };
+
 
   return (
     <div className="flex flex-col h-screen">
@@ -1173,7 +1225,9 @@ export default function HomePage() {
                                           } ${
                                             task.completed 
                                               ? 'bg-gray-300 border-l-4 border-gray-600 opacity-100' 
-                                              : 'bg-white border-l-4 border-indigo-400'
+                                              : isTaskOverdue(task)
+                                                ? 'bg-red-50 border-l-4 border-red-400'
+                                                : 'bg-white border-l-4 border-indigo-400'
                                           } cursor-pointer transition-all duration-200 transform hover:-translate-y-1 group ${
                                             expandedTaskId === task.id ? 'z-10 relative' : ''
                                           }`}
@@ -1221,7 +1275,13 @@ export default function HomePage() {
                                                   expandedTaskId === task.id 
                                                     ? '' 
                                                     : 'line-clamp-2 overflow-hidden text-ellipsis'
-                                                } ${task.completed ? 'line-through text-gray-400' : ''}`}
+                                                } ${
+                                                  task.completed 
+                                                    ? 'line-through text-gray-400' 
+                                                    : isTaskOverdue(task) 
+                                                      ? 'text-red-700' 
+                                                      : ''
+                                                }`}
                                               >
                                                 {task.title}
                                               </p>
@@ -1251,9 +1311,22 @@ export default function HomePage() {
                                             </div>
                                           </div>
                                           <div className="flex justify-between items-center mt-3">
-                                            <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full truncate max-w-[80px]">
-                                              {new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                            </span>
+                                            <div className="flex space-x-1 flex-wrap">
+                                              <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full truncate max-w-[80px] mb-1">
+                                                {new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                              </span>
+                                              
+                                              {/* Add deadline badge if it exists */}
+                                              {task.deadline && (
+                                                <span className={`text-xs font-semibold px-2 py-1 rounded-full truncate max-w-[80px] ml-1 mb-1 ${
+                                                  isTaskOverdue(task)
+                                                    ? 'bg-red-100 text-red-700'
+                                                    : 'bg-orange-100 text-orange-700'
+                                                }`}>
+                                                  {new Date(task.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                                </span>
+                                              )}
+                                            </div>
                                             <div className="flex items-center space-x-2">
                                               {/* Task owner avatar - use the dedicated component */}
                                               <TaskCreatorAvatar 
@@ -1423,6 +1496,18 @@ export default function HomePage() {
                     day: 'numeric'
                   })}
                 </span>
+                {selectedTask.deadline && (
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                    isTaskOverdue(selectedTask) 
+                      ? 'text-red-600 bg-red-50' 
+                      : 'text-orange-600 bg-orange-50'
+                  }`}>
+                    Due: {new Date(selectedTask.deadline).toLocaleDateString('en-US', { 
+                      month: 'short', 
+                      day: 'numeric'
+                    })}
+                  </span>
+                )}
                 <span className="text-xs text-gray-500">
                   Updated: {new Date(selectedTask.updated_at).toLocaleDateString('en-US', { 
                     month: 'short', 
@@ -1432,18 +1517,120 @@ export default function HomePage() {
               </div>
             </div>
             <div className="p-5">
-              <div className="mb-5">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <div className="p-4 bg-gray-50 rounded-lg min-h-[100px]">
-                  {selectedTask.description ? (
-                    <p className="text-gray-700 whitespace-pre-wrap break-words">
-                      {selectedTask.description}
-                    </p>
-                  ) : (
-                    <p className="text-gray-400 italic">No description provided</p>
-                  )}
+              {/* Deadline Management section - Only visible to project owner */}
+              {selectedProject && selectedProject.user_id === auth.currentUser?.uid && (
+                <div className="mb-5">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Deadline Management</label>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    {!isDeadlineOpen ? (
+                      <div className="flex justify-between items-center">
+                        <div>
+                          {selectedTask.deadline ? (
+                            <div className="flex items-center gap-2">
+                              <span className={`text-sm font-medium ${
+                                isTaskOverdue(selectedTask) ? 'text-red-600' : 'text-gray-700'
+                              }`}>
+                                Due: {new Date(selectedTask.deadline).toLocaleDateString('en-US', {
+                                  weekday: 'long',
+                                  year: 'numeric', 
+                                  month: 'long', 
+                                  day: 'numeric'
+                                })}
+                              </span>
+                              {isTaskOverdue(selectedTask) && !selectedTask.completed && (
+                                <span className="bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded-full">
+                                  Overdue
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-sm text-gray-500 italic">No deadline set</span>
+                          )}
+                        </div>
+                        <div>
+                          <button 
+                            onClick={() => {
+                              // Convert to YYYY-MM-DD format for the input if a deadline exists
+                              setNewDeadline(selectedTask.deadline ? 
+                                new Date(selectedTask.deadline).toISOString().split('T')[0] : 
+                                ''
+                              );
+                              setIsDeadlineOpen(true);
+                            }}
+                            className="px-3 py-1.5 text-xs rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+                          >
+                            {selectedTask.deadline ? 'Change Deadline' : 'Set Deadline'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex flex-col">
+                          <label className="text-xs text-gray-600 mb-1">Select Deadline Date</label>
+                          <input
+                            type="date"
+                            value={newDeadline}
+                            // Removed min attribute to allow setting deadlines in the past for testing
+                            onChange={(e) => setNewDeadline(e.target.value)}
+                            className="p-2 text-sm border border-gray-300 rounded"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          {selectedTask.deadline && (
+                            <button 
+                              onClick={() => {
+                                setNewDeadline('');
+                                handleUpdateDeadline();
+                              }}
+                              className="px-3 py-1.5 text-xs rounded-md bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
+                            >
+                              Remove Deadline
+                            </button>
+                          )}
+                          <button 
+                            onClick={() => setIsDeadlineOpen(false)}
+                            className="px-3 py-1.5 text-xs rounded-md border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button 
+                            onClick={handleUpdateDeadline}
+                            className="px-3 py-1.5 text-xs rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+                          >
+                            Save Deadline
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
+              
+              {/* Show deadline info for non-owners */}
+              {selectedProject && selectedProject.user_id !== auth.currentUser?.uid && selectedTask.deadline && (
+                <div className="mb-5">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-medium ${
+                        isTaskOverdue(selectedTask) ? 'text-red-600' : 'text-gray-700'
+                      }`}>
+                        Due: {new Date(selectedTask.deadline).toLocaleDateString('en-US', {
+                          weekday: 'long',
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric'
+                        })}
+                      </span>
+                      {isTaskOverdue(selectedTask) && !selectedTask.completed && (
+                        <span className="bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded-full">
+                          Overdue
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               
               <div className="mb-5">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Task Details</label>
