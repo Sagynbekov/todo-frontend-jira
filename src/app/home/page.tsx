@@ -14,6 +14,8 @@ import {
   FaTimes,
   FaSearch,
   FaUserMinus,
+  FaCalendarAlt,
+  FaFilter,
 } from "react-icons/fa";
 import { DragDropContext, Droppable, Draggable, DroppableProvided, DroppableStateSnapshot, DraggableProvided, DraggableStateSnapshot } from "react-beautiful-dnd";
 import { authFetch, waitForAuth } from "../lib/auth-utils";
@@ -117,8 +119,15 @@ export default function HomePage() {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [currentPhotoURL, setCurrentPhotoURL] = useState<string | null>(null);
-  // Add search state
+  
+  // Search state
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // Date filtering state
+  const [showDateFilter, setShowDateFilter] = useState(false);
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
+  const [isDateFilterActive, setIsDateFilterActive] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(u => {
@@ -610,31 +619,100 @@ export default function HomePage() {
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editingTaskTitle, setEditingTaskTitle] = useState("");
 
-  // New function to filter tasks based on search query
+  // Function to filter tasks based on search query and date range
   const getFilteredTasks = (columnId: number): Task[] => {
-    if (!searchQuery.trim() || !tasks[columnId]) {
-      return tasks[columnId] || [];
+    if (!tasks[columnId]) {
+      return [];
     }
-    
-    const query = searchQuery.toLowerCase().trim();
-    return tasks[columnId].filter(task => 
-      task.title.toLowerCase().includes(query) || 
-      (task.description && task.description.toLowerCase().includes(query))
-    );
+
+    return tasks[columnId].filter(task => {
+      // Text filter
+      const matchesText = !searchQuery.trim() || 
+        task.title.toLowerCase().includes(searchQuery.toLowerCase().trim()) || 
+        (task.description && task.description.toLowerCase().includes(searchQuery.toLowerCase().trim()));
+
+      // Date filter
+      let matchesDate = true;
+      if (isDateFilterActive) {
+        const taskDate = new Date(task.created_at);
+        const startFilterDate = startDate ? new Date(startDate) : null;
+        const endFilterDate = endDate ? new Date(endDate) : null;
+        
+        // If we have a start date filter and the task is before it
+        if (startFilterDate && taskDate < startFilterDate) {
+          matchesDate = false;
+        }
+        
+        // If we have an end date filter and the task is after it
+        // Set end date to end of day
+        if (endFilterDate) {
+          endFilterDate.setHours(23, 59, 59, 999);
+          if (taskDate > endFilterDate) {
+            matchesDate = false;
+          }
+        }
+      }
+      
+      return matchesText && matchesDate;
+    });
   };
 
-  // Function to check if any tasks match the search
+  // Function to check if any tasks match the filters
   const hasMatchingTasks = (): boolean => {
-    if (!searchQuery.trim()) return true;
+    if (!searchQuery.trim() && !isDateFilterActive) return true;
     
     return Object.keys(tasks).some(columnId => {
       const columnTasks = tasks[parseInt(columnId)] || [];
-      const query = searchQuery.toLowerCase().trim();
-      return columnTasks.some(task => 
-        task.title.toLowerCase().includes(query) || 
-        (task.description && task.description.toLowerCase().includes(query))
-      );
+      
+      return columnTasks.some(task => {
+        // Text match check
+        const matchesText = !searchQuery.trim() || 
+          task.title.toLowerCase().includes(searchQuery.toLowerCase().trim()) || 
+          (task.description && task.description.toLowerCase().includes(searchQuery.toLowerCase().trim()));
+
+        // Date match check
+        let matchesDate = true;
+        if (isDateFilterActive) {
+          const taskDate = new Date(task.created_at);
+          const startFilterDate = startDate ? new Date(startDate) : null;
+          const endFilterDate = endDate ? new Date(endDate) : null;
+          
+          if (startFilterDate && taskDate < startFilterDate) {
+            matchesDate = false;
+          }
+          
+          if (endFilterDate) {
+            endFilterDate.setHours(23, 59, 59, 999);
+            if (taskDate > endFilterDate) {
+              matchesDate = false;
+            }
+          }
+        }
+        
+        return matchesText && matchesDate;
+      });
     });
+  };
+
+  // Update filter state when date filters change
+  useEffect(() => {
+    setIsDateFilterActive(!!(startDate || endDate));
+  }, [startDate, endDate]);
+
+  // Function to clear all filters
+  const clearAllFilters = () => {
+    setSearchQuery("");
+    setStartDate("");
+    setEndDate("");
+    setIsDateFilterActive(false);
+    setShowDateFilter(false);
+  };
+
+  // Function to clear just the date filter
+  const clearDateFilter = () => {
+    setStartDate("");
+    setEndDate("");
+    setIsDateFilterActive(false);
   };
 
   // Function to clear search
@@ -865,8 +943,9 @@ export default function HomePage() {
             </h1>
           </div>
 
-          {/* Search + Add User */}
+          {/* Search + Filter + Add User */}
           <div className="flex items-center gap-2 mb-6">
+            {/* Search input */}
             <div className="relative w-64">
               <input
                 type="text"
@@ -886,11 +965,77 @@ export default function HomePage() {
               )}
             </div>
             
+            {/* Date Filter Button */}
+            <div className="relative">
+              <button
+                onClick={() => setShowDateFilter(!showDateFilter)}
+                className={`p-2 rounded-lg ${isDateFilterActive ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-200 hover:bg-gray-300'} shadow-md transition-all duration-200 flex items-center justify-center`}
+                title="Filter by date"
+              >
+                <FaCalendarAlt size={18} className={isDateFilterActive ? "text-white" : "text-gray-600"} />
+              </button>
+              
+              {/* Date Filter Dropdown */}
+              {showDateFilter && (
+                <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-lg shadow-xl z-10 p-4 border border-gray-200">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3">Filter by Date</h4>
+                  
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
+                      <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="w-full p-2 text-sm text-black rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">To Date</label>
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="w-full p-2 text-sm text-black rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    
+                    <div className="flex justify-between pt-2">
+                      <button 
+                        onClick={clearDateFilter}
+                        className="px-3 py-1 text-xs rounded-md text-gray-700 hover:bg-gray-100 transition-colors"
+                      >
+                        Clear
+                      </button>
+                      <button 
+                        onClick={() => setShowDateFilter(false)}
+                        className="px-3 py-1 text-xs rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Clear All Filters button - show only when filters are active */}
+            {(searchQuery || isDateFilterActive) && (
+              <button
+                onClick={clearAllFilters}
+                className="p-2 rounded-lg bg-gray-200 hover:bg-gray-300 shadow-md transition-all duration-200 flex items-center justify-center"
+                title="Clear all filters"
+              >
+                <FaTimes size={18} className="text-gray-600" />
+              </button>
+            )}
+            
             {/* Add User button - only visible to project owner */}
             {selectedProject && selectedProject.user_id === auth.currentUser?.uid ? (
               <button 
                 onClick={() => setShowUserModal(true)}
-                className="p-2 rounded-full bg-blue-500 hover:bg-blue-600 shadow-md transition-all duration-200 mr-2"
+                className="p-2 rounded-full bg-blue-500 hover:bg-blue-600 shadow-md transition-all duration-200 ml-2"
                 title="Add user to project"
               >
                 <FaUserPlus size={18} className="text-white" />
@@ -1569,6 +1714,44 @@ export default function HomePage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Filter indicators */}
+      {(searchQuery.trim() || isDateFilterActive) && (
+        <div className="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg px-4 py-2 flex items-center gap-2 border border-gray-200 z-40">
+          <FaFilter className="text-indigo-500" />
+          <span className="font-medium">
+            {hasMatchingTasks() ? 'Filtering results' : 'No matching tasks'}
+          </span>
+          
+          {/* Show filter details */}
+          <div className="flex gap-2 ml-2">
+            {searchQuery.trim() && (
+              <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full flex items-center">
+                Text: "{searchQuery.trim()}"
+                <button onClick={() => setSearchQuery("")} className="ml-1 text-blue-600 hover:text-blue-800">
+                  <FaTimes size={10} />
+                </button>
+              </span>
+            )}
+            
+            {isDateFilterActive && (
+              <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full flex items-center">
+                Date: {startDate ? new Date(startDate).toLocaleDateString() : "Any"} - {endDate ? new Date(endDate).toLocaleDateString() : "Any"}
+                <button onClick={clearDateFilter} className="ml-1 text-green-600 hover:text-green-800">
+                  <FaTimes size={10} />
+                </button>
+              </span>
+            )}
+          </div>
+          
+          <button 
+            onClick={clearAllFilters}
+            className="ml-2 text-gray-400 hover:text-gray-600"
+          >
+            <FaTimes size={14} />
+          </button>
         </div>
       )}
 
