@@ -16,6 +16,8 @@ import {
   FaUserMinus,
   FaCalendarAlt,
   FaFilter,
+  FaCheckCircle,
+  FaExclamationCircle,
 } from "react-icons/fa";
 import { DragDropContext, Droppable, Draggable, DroppableProvided, DroppableStateSnapshot, DraggableProvided, DraggableStateSnapshot } from "react-beautiful-dnd";
 import { authFetch, waitForAuth } from "../lib/auth-utils";
@@ -134,6 +136,11 @@ export default function HomePage() {
   // Add new state for deadline edit
   const [newDeadline, setNewDeadline] = useState<string>("");
   const [isDeadlineOpen, setIsDeadlineOpen] = useState(false);
+
+  // Add new status filter states
+  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'incomplete'>('all');
+  const [deadlineFilter, setDeadlineFilter] = useState<'all' | 'overdue' | 'upcoming'>('all');
+  const [showStatusFilter, setShowStatusFilter] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(u => {
@@ -638,7 +645,7 @@ export default function HomePage() {
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editingTaskTitle, setEditingTaskTitle] = useState("");
 
-  // Function to filter tasks based on search query and date range
+  // Function to filter tasks based on search query, date range, status and deadline
   const getFilteredTasks = (columnId: number): Task[] => {
     if (!tasks[columnId]) {
       return [];
@@ -672,13 +679,37 @@ export default function HomePage() {
         }
       }
       
-      return matchesText && matchesDate;
+      // Status filter
+      let matchesStatus = true;
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'completed' && !task.completed) {
+          matchesStatus = false;
+        }
+        if (statusFilter === 'incomplete' && task.completed) {
+          matchesStatus = false;
+        }
+      }
+      
+      // Deadline filter
+      let matchesDeadline = true;
+      if (deadlineFilter !== 'all') {
+        const status = getDeadlineStatus(task);
+        
+        if (deadlineFilter === 'overdue' && status !== 'overdue') {
+          matchesDeadline = false;
+        }
+        if (deadlineFilter === 'upcoming' && (status !== 'upcoming' || task.completed)) {
+          matchesDeadline = false;
+        }
+      }
+      
+      return matchesText && matchesDate && matchesStatus && matchesDeadline;
     });
   };
 
   // Function to check if any tasks match the filters
   const hasMatchingTasks = (): boolean => {
-    if (!searchQuery.trim() && !isDateFilterActive) return true;
+    if (!searchQuery.trim() && !isDateFilterActive && statusFilter === 'all' && deadlineFilter === 'all') return true;
     
     return Object.keys(tasks).some(columnId => {
       const columnTasks = tasks[parseInt(columnId)] || [];
@@ -708,7 +739,31 @@ export default function HomePage() {
           }
         }
         
-        return matchesText && matchesDate;
+        // Status filter
+        let matchesStatus = true;
+        if (statusFilter !== 'all') {
+          if (statusFilter === 'completed' && !task.completed) {
+            matchesStatus = false;
+          }
+          if (statusFilter === 'incomplete' && task.completed) {
+            matchesStatus = false;
+          }
+        }
+        
+        // Deadline filter
+        let matchesDeadline = true;
+        if (deadlineFilter !== 'all') {
+          const status = getDeadlineStatus(task);
+          
+          if (deadlineFilter === 'overdue' && status !== 'overdue') {
+            matchesDeadline = false;
+          }
+          if (deadlineFilter === 'upcoming' && (status !== 'upcoming' || task.completed)) {
+            matchesDeadline = false;
+          }
+        }
+        
+        return matchesText && matchesDate && matchesStatus && matchesDeadline;
       });
     });
   };
@@ -725,6 +780,9 @@ export default function HomePage() {
     setEndDate("");
     setIsDateFilterActive(false);
     setShowDateFilter(false);
+    setStatusFilter('all');
+    setDeadlineFilter('all');
+    setShowStatusFilter(false);
   };
 
   // Function to clear just the date filter
@@ -1032,7 +1090,7 @@ export default function HomePage() {
           </div>
 
           {/* Search + Filter + Add User */}
-          <div className="flex items-center gap-2 mb-6">
+          <div className="flex flex-wrap items-center gap-2 mb-4">
             {/* Search input */}
             <div className="relative w-64">
               <input
@@ -1056,7 +1114,10 @@ export default function HomePage() {
             {/* Date Filter Button */}
             <div className="relative">
               <button
-                onClick={() => setShowDateFilter(!showDateFilter)}
+                onClick={() => {
+                  setShowDateFilter(!showDateFilter);
+                  setShowStatusFilter(false);
+                }}
                 className={`p-2 rounded-lg ${isDateFilterActive ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-200 hover:bg-gray-300'} shadow-md transition-all duration-200 flex items-center justify-center`}
                 title="Filter by date"
               >
@@ -1108,8 +1169,126 @@ export default function HomePage() {
               )}
             </div>
             
+            {/* Status Filter Button */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setShowStatusFilter(!showStatusFilter);
+                  setShowDateFilter(false);
+                }}
+                className={`p-2 rounded-lg ${statusFilter !== 'all' || deadlineFilter !== 'all' ? 'bg-purple-500 hover:bg-purple-600' : 'bg-gray-200 hover:bg-gray-300'} shadow-md transition-all duration-200 flex items-center justify-center`}
+                title="Filter by status"
+              >
+                <FaFilter size={18} className={statusFilter !== 'all' || deadlineFilter !== 'all' ? "text-white" : "text-gray-600"} />
+              </button>
+              
+              {/* Status Filter Dropdown */}
+              {showStatusFilter && (
+                <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-lg shadow-xl z-10 p-4 border border-gray-200">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3">Filter by Status</h4>
+                  
+                  <div className="space-y-4">
+                    {/* Task Status Filter */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-2">Task Status</label>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => setStatusFilter('all')}
+                          className={`px-3 py-2 text-xs rounded-md flex items-center justify-center ${
+                            statusFilter === 'all'
+                              ? 'bg-purple-100 text-purple-700 border border-purple-300'
+                              : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
+                          }`}
+                        >
+                          All
+                        </button>
+                        <button
+                          onClick={() => setStatusFilter('completed')}
+                          className={`px-3 py-2 text-xs rounded-md flex items-center justify-center ${
+                            statusFilter === 'completed'
+                              ? 'bg-green-100 text-green-700 border border-green-300'
+                              : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
+                          }`}
+                        >
+                          <FaCheckCircle size={12} className="mr-1" />
+                          Completed
+                        </button>
+                        <button
+                          onClick={() => setStatusFilter('incomplete')}
+                          className={`px-3 py-2 text-xs rounded-md flex items-center justify-center ${
+                            statusFilter === 'incomplete'
+                              ? 'bg-blue-100 text-blue-700 border border-blue-300'
+                              : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
+                          }`}
+                        >
+                          Incomplete
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Deadline Status Filter */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-2">Deadline Status</label>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => setDeadlineFilter('all')}
+                          className={`px-3 py-2 text-xs rounded-md flex items-center justify-center ${
+                            deadlineFilter === 'all'
+                              ? 'bg-purple-100 text-purple-700 border border-purple-300'
+                              : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
+                          }`}
+                        >
+                          All
+                        </button>
+                        <button
+                          onClick={() => setDeadlineFilter('overdue')}
+                          className={`px-3 py-2 text-xs rounded-md flex items-center justify-center ${
+                            deadlineFilter === 'overdue'
+                              ? 'bg-red-100 text-red-700 border border-red-300'
+                              : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
+                          }`}
+                        >
+                          <FaExclamationCircle size={12} className="mr-1" />
+                          Overdue
+                        </button>
+                        <button
+                          onClick={() => setDeadlineFilter('upcoming')}
+                          className={`px-3 py-2 text-xs rounded-md flex items-center justify-center ${
+                            deadlineFilter === 'upcoming'
+                              ? 'bg-orange-100 text-orange-700 border border-orange-300'
+                              : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
+                          }`}
+                        >
+                          Upcoming
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Apply and Clear buttons */}
+                    <div className="flex justify-between pt-2 border-t border-gray-100">
+                      <button 
+                        onClick={() => {
+                          setStatusFilter('all');
+                          setDeadlineFilter('all');
+                        }}
+                        className="px-3 py-1 text-xs rounded-md text-gray-700 hover:bg-gray-100 transition-colors"
+                      >
+                        Clear
+                      </button>
+                      <button 
+                        onClick={() => setShowStatusFilter(false)}
+                        className="px-3 py-1 text-xs rounded-md bg-purple-500 text-white hover:bg-purple-600 transition-colors"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            
             {/* Clear All Filters button - show only when filters are active */}
-            {(searchQuery || isDateFilterActive) && (
+            {(searchQuery || isDateFilterActive || statusFilter !== 'all' || deadlineFilter !== 'all') && (
               <button
                 onClick={clearAllFilters}
                 className="p-2 rounded-lg bg-gray-200 hover:bg-gray-300 shadow-md transition-all duration-200 flex items-center justify-center"
@@ -1163,6 +1342,43 @@ export default function HomePage() {
               )}
             </div>
           </div>
+
+          {/* Active filters indicator */}
+          {(statusFilter !== 'all' || deadlineFilter !== 'all') && (
+            <div className="mb-4 flex flex-wrap gap-2">
+              {statusFilter !== 'all' && (
+                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                  statusFilter === 'completed' 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-blue-100 text-blue-800'
+                }`}>
+                  {statusFilter === 'completed' ? 'Completed' : 'Incomplete'} tasks
+                  <button 
+                    onClick={() => setStatusFilter('all')}
+                    className="ml-1 text-opacity-70 hover:text-opacity-100"
+                  >
+                    <FaTimes size={10} />
+                  </button>
+                </span>
+              )}
+              
+              {deadlineFilter !== 'all' && (
+                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                  deadlineFilter === 'overdue' 
+                    ? 'bg-red-100 text-red-800' 
+                    : 'bg-orange-100 text-orange-800'
+                }`}>
+                  {deadlineFilter === 'overdue' ? 'Overdue' : 'Upcoming'} deadlines
+                  <button 
+                    onClick={() => setDeadlineFilter('all')}
+                    className="ml-1 text-opacity-70 hover:text-opacity-100"
+                  >
+                    <FaTimes size={10} />
+                  </button>
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Kanban Board */}
           {selectedProject ? (
@@ -1955,7 +2171,7 @@ export default function HomePage() {
       )}
 
       {/* Filter indicators */}
-      {(searchQuery.trim() || isDateFilterActive) && (
+      {(searchQuery.trim() || isDateFilterActive || statusFilter !== 'all' || deadlineFilter !== 'all') && (
         <div className="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg px-4 py-2 flex items-center gap-2 border border-gray-200 z-40">
           <FaFilter className="text-indigo-500" />
           <span className="font-medium">
@@ -1963,7 +2179,7 @@ export default function HomePage() {
           </span>
           
           {/* Show filter details */}
-          <div className="flex gap-2 ml-2">
+          <div className="flex flex-wrap gap-2 ml-2">
             {searchQuery.trim() && (
               <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full flex items-center">
                 Text: "{searchQuery.trim()}"
@@ -1977,6 +2193,32 @@ export default function HomePage() {
               <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full flex items-center">
                 Date: {startDate ? new Date(startDate).toLocaleDateString() : "Any"} - {endDate ? new Date(endDate).toLocaleDateString() : "Any"}
                 <button onClick={clearDateFilter} className="ml-1 text-green-600 hover:text-green-800">
+                  <FaTimes size={10} />
+                </button>
+              </span>
+            )}
+            
+            {statusFilter !== 'all' && (
+              <span className={`text-xs px-2 py-1 rounded-full flex items-center ${
+                statusFilter === 'completed' 
+                  ? 'bg-green-100 text-green-800'
+                  : 'bg-blue-100 text-blue-800'
+              }`}>
+                Status: {statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}
+                <button onClick={() => setStatusFilter('all')} className="ml-1 text-blue-600 hover:text-blue-800">
+                  <FaTimes size={10} />
+                </button>
+              </span>
+            )}
+            
+            {deadlineFilter !== 'all' && (
+              <span className={`text-xs px-2 py-1 rounded-full flex items-center ${
+                deadlineFilter === 'overdue' 
+                  ? 'bg-red-100 text-red-800'
+                  : 'bg-orange-100 text-orange-800'
+              }`}>
+                Deadline: {deadlineFilter.charAt(0).toUpperCase() + deadlineFilter.slice(1)}
+                <button onClick={() => setDeadlineFilter('all')} className="ml-1 text-blue-600 hover:text-blue-800">
                   <FaTimes size={10} />
                 </button>
               </span>
