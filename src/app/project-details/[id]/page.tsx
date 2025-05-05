@@ -40,6 +40,7 @@ interface Task {
   creator_email: string | null;
   completed_by?: number | null;  // ID of who completed the task
   completed_by_email?: string | null; // Email of who completed the task
+  deadline?: string | null; // Add deadline field
 }
 
 interface Member {
@@ -163,41 +164,46 @@ export default function ProjectDetailsPage() {
     }
   };
   
-  // Function to generate member metrics
-  // Remove old implementation of generateMemberMetrics and insert this
-
+  // Function to generate member metrics with updated overdue tasks calculation
   const generateMemberMetrics = (members: Member[], tasks: Task[]) => {
     const metrics: MemberMetrics[] = members.map(member => {
       const memberEmail = member.email.toLowerCase().trim();
   
-      // Все задачи, созданные этим пользователем
+      // Tasks created by this user
       const createdTasks = tasks.filter(task =>
         task.creator_email?.toLowerCase().trim() === memberEmail
       );
   
-      // Все выполненные задачи этого пользователем - теперь используем поле completed_by_email
-      // Учитываем задачи, которые пользователь выполнил (не создал, а именно выполнил)
+      // Tasks completed by this user
       const completedTasks = tasks.filter(task =>
         task.completed === true && 
         task.completed_by_email?.toLowerCase().trim() === memberEmail
       );
   
-      // (тестовые) просроченные — оставляем как есть
-      const overdueTasks = Math.floor(
-        Math.random() * Math.max(1, createdTasks.length - completedTasks.length)
-      );
+      // Calculate ALL overdue tasks - tasks created by this user that have a deadline in the past
+      // regardless of completion status
+      const overdueTasks = tasks.filter(task => {
+        // Check if task was created by this user
+        const isCreator = task.creator_email?.toLowerCase().trim() === memberEmail;
+        
+        // Check if task has a deadline and is in the past
+        const hasDeadline = !!task.deadline;
+        const isPastDeadline = hasDeadline && new Date(task.deadline!) < new Date();
+        
+        // Task is overdue if: created by this user and has past deadline (regardless of completion)
+        return isCreator && isPastDeadline;
+      });
   
       return {
         email: member.email,
         tasksCreated: createdTasks.length,
         tasksCompleted: completedTasks.length,
-        tasksOverdue: overdueTasks
+        tasksOverdue: overdueTasks.length
       };
     });
   
     setMemberMetrics(metrics.length ? metrics : []);
   };
-  
 
   // Function to prepare chart data based on selected type
   const getChartData = () => {
@@ -226,23 +232,46 @@ export default function ProjectDetailsPage() {
     let data: number[] = [];
     let title = '';
     
+    // Filter out members with 0 values based on selected chart type
+    // This ensures we only display relevant members in the chart
+    let filteredMetrics = [...memberMetrics];
+    
     // Depending on the selected chart type
     switch(activeChart) {
       case 'created':
         title = 'Created Tasks';
-        labels = memberMetrics.map(m => m.email);
-        data = memberMetrics.map(m => m.tasksCreated);
+        filteredMetrics = memberMetrics.filter(m => m.tasksCreated > 0);
+        labels = filteredMetrics.map(m => m.email);
+        data = filteredMetrics.map(m => m.tasksCreated);
         break;
       case 'completed':
         title = 'Completed Tasks';
-        labels = memberMetrics.map(m => m.email);
-        data = memberMetrics.map(m => m.tasksCompleted);
+        filteredMetrics = memberMetrics.filter(m => m.tasksCompleted > 0);
+        labels = filteredMetrics.map(m => m.email);
+        data = filteredMetrics.map(m => m.tasksCompleted);
         break;
       case 'overdue':
         title = 'Overdue Tasks';
-        labels = memberMetrics.map(m => m.email);
-        data = memberMetrics.map(m => m.tasksOverdue);
+        filteredMetrics = memberMetrics.filter(m => m.tasksOverdue > 0);
+        labels = filteredMetrics.map(m => m.email);
+        data = filteredMetrics.map(m => m.tasksOverdue);
         break;
+    }
+    
+    // If no data for the selected chart type, show a message
+    if (data.length === 0) {
+      return {
+        labels: ['No data'],
+        datasets: [{
+          label: title,
+          data: [1],
+          backgroundColor: ['rgba(200, 200, 200, 0.7)'],
+          borderColor: ['rgba(200, 200, 200, 1)'],
+          borderWidth: 1,
+        }],
+        percentages: ['100'],
+        noData: true
+      };
     }
     
     // Calculate percentages for each user
@@ -260,7 +289,8 @@ export default function ProjectDetailsPage() {
           borderWidth: 1,
         },
       ],
-      percentages, // Save percentages for access in the legend
+      percentages,
+      noData: false
     };
   };
 
@@ -467,104 +497,118 @@ export default function ProjectDetailsPage() {
                   {memberMetrics.length > 0 ? (
                     <div className="flex flex-col items-center">
                       <div className="w-full max-w-md mb-8">
-                        <Pie 
-                          data={getChartData()} 
-                          options={{
-                            plugins: {
-                              legend: {
-                                position: 'bottom',
-                                display: false // Disable default ChartJS legend
+                        {getChartData().noData ? (
+                          <div className="text-center py-12 bg-gray-50 rounded-lg border border-gray-200">
+                            <h3 className="text-xl font-semibold text-gray-500 mb-2">No {activeChart} tasks</h3>
+                            <p className="text-gray-400">There are no {activeChart} tasks to display</p>
+                          </div>
+                        ) : (
+                          <Pie 
+                            data={getChartData()} 
+                            options={{
+                              plugins: {
+                                legend: {
+                                  position: 'bottom',
+                                  display: false // Disable default ChartJS legend
+                                },
+                                tooltip: {
+                                  callbacks: {
+                                    label: function(context) {
+                                      const label = context.label || '';
+                                      const value = context.raw || 0;
+                                      const percentage = getChartData().percentages[context.dataIndex] || 0;
+                                      return `${label}: ${value} tasks (${percentage}%)`;
+                                    }
+                                  },
+                                  bodyFont: {
+                                    size: 14
+                                  },
+                                  titleFont: {
+                                    size: 16
+                                  },
+                                  backgroundColor: 'rgba(0,0,0,0.8)',
+                                  padding: 12,
+                                  cornerRadius: 8,
+                                  displayColors: true,
+                                  boxPadding: 6
+                                },
+                                // Disable constant display of labels on the chart
+                                datalabels: {
+                                  display: false
+                                }
                               },
-                              tooltip: {
-                                callbacks: {
-                                  label: function(context) {
-                                    const label = context.label || '';
-                                    const value = context.raw || 0;
-                                    const percentage = getChartData().percentages[context.dataIndex] || 0;
-                                    return `${label}: ${value} tasks (${percentage}%)`;
-                                  }
-                                },
-                                bodyFont: {
-                                  size: 14
-                                },
-                                titleFont: {
-                                  size: 16
-                                },
-                                backgroundColor: 'rgba(0,0,0,0.8)',
-                                padding: 12,
-                                cornerRadius: 8,
-                                displayColors: true,
-                                boxPadding: 6
+                              maintainAspectRatio: true,
+                              animation: {
+                                animateScale: true,
+                                animateRotate: true
                               },
-                              // Disable constant display of labels on the chart
-                              datalabels: {
-                                display: false
+                              // Customize hover effects
+                              onHover: (event, chartElements, chart) => {
+                                if (chart?.canvas) {
+                                  chart.canvas.style.cursor = chartElements.length ? 'pointer' : 'default';
+                                }
                               }
-                            },
-                            maintainAspectRatio: true,
-                            animation: {
-                              animateScale: true,
-                              animateRotate: true
-                            },
-                            // Customize hover effects
-                            onHover: (event, chartElements, chart) => {
-                              if (chart?.canvas) {
-                                chart.canvas.style.cursor = chartElements.length ? 'pointer' : 'default';
-                              }
-                            }
-                          }} 
-                        />
+                            }} 
+                          />
+                        )}
                       </div>
                       
                       {/* Custom Legend with Pagination */}
-                      <div className="w-full max-w-md bg-gray-50 p-4 rounded-lg border border-gray-200">
-                        <div className="grid grid-cols-2 gap-4">
-                          {getChartData().labels.slice(legendPage * 8, legendPage * 8 + 8).map((label, index) => {
-                            const realIndex = legendPage * 8 + index;
-                            const data = getChartData();
-                            const percentage = data.percentages[realIndex];
-                            return (
-                              <div key={label} className="flex items-center gap-2">
-                                <div 
-                                  className="w-4 h-4 rounded-full flex-shrink-0" 
-                                  style={{ backgroundColor: data.datasets[0].backgroundColor[realIndex] }}
-                                ></div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-sm text-gray-700 overflow-ellipsis overflow-hidden">{label}</span>
-                                    <span className="text-xs font-medium px-2 py-1 ml-2 bg-gray-200 text-gray-700 rounded-full">
-                                      {percentage}%
-                                    </span>
+                      {!getChartData().noData && (
+                        <div className="w-full max-w-md bg-gray-50 p-4 rounded-lg border border-gray-200">
+                          <div className="grid grid-cols-2 gap-4">
+                            {getChartData().labels.slice(legendPage * 8, legendPage * 8 + 8).map((label, index) => {
+                              const realIndex = legendPage * 8 + index;
+                              const data = getChartData();
+                              const percentage = data.percentages[realIndex];
+                              return (
+                                <div key={label} className="flex items-center gap-2">
+                                  <div 
+                                    className="w-4 h-4 rounded-full flex-shrink-0" 
+                                    style={{ backgroundColor: data.datasets[0].backgroundColor[realIndex] }}
+                                  ></div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-sm text-gray-700 overflow-ellipsis overflow-hidden">{label}</span>
+                                      <span className="text-xs font-medium px-2 py-1 ml-2 bg-gray-200 text-gray-700 rounded-full">
+                                        {percentage}%
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        
-                        {/* Legend Pagination */}
-                        {memberMetrics.length > 8 && (
-                          <div className="flex justify-center mt-6">
-                            <button 
-                              onClick={() => setLegendPage(prev => Math.max(0, prev - 1))}
-                              disabled={legendPage === 0}
-                              className={`p-2 rounded-full mr-3 ${legendPage === 0 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-200'}`}
-                            >
-                              <FaChevronLeft size={16} />
-                            </button>
-                            <span className="text-sm text-gray-600 self-center">
-                              {legendPage + 1} / {Math.ceil(memberMetrics.length / 8)}
-                            </span>
-                            <button 
-                              onClick={() => setLegendPage(prev => prev + 1 < Math.ceil(memberMetrics.length / 8) ? prev + 1 : prev)}
-                              disabled={legendPage + 1 >= Math.ceil(memberMetrics.length / 8)}
-                              className={`p-2 rounded-full ml-3 ${legendPage + 1 >= Math.ceil(memberMetrics.length / 8) ? 'text-gray-300 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-200'}`}
-                            >
-                              <FaChevronRight size={16} />
-                            </button>
+                              );
+                            })}
                           </div>
-                        )}
-                      </div>
+                          
+                          {/* Legend Pagination */}
+                          {memberMetrics.length > 8 && (
+                            <div className="flex justify-center mt-6">
+                              <button 
+                                onClick={() => setLegendPage(prev => Math.max(0, prev - 1))}
+                                disabled={legendPage === 0}
+                                className={`p-2 rounded-full mr-3 ${legendPage === 0 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-200'}`}
+                              >
+                                <FaChevronLeft size={16} />
+                              </button>
+                              <span className="text-sm text-gray-600 self-center">
+                                {legendPage + 1} / {Math.ceil(memberMetrics.length / 8)}
+                              </span>
+                              <button 
+                                onClick={() => setLegendPage(prev => prev + 1 < Math.ceil(memberMetrics.length / 8) ? prev + 1 : prev)}
+                                disabled={legendPage + 1 >= Math.ceil(memberMetrics.length / 8)}
+                                className={`p-2 rounded-full ml-3 ${legendPage + 1 >= Math.ceil(memberMetrics.length / 8) ? 'text-gray-300 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-200'}`}
+                              >
+                                <FaChevronRight size={16} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {activeChart === 'overdue' && !getChartData().noData && (
+                        <div className="mt-2 text-sm text-gray-500 text-center">
+                          <p>Includes all tasks with deadlines in the past (both completed and incomplete)</p>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-center text-gray-500">No data to display</p>
@@ -632,10 +676,20 @@ export default function ProjectDetailsPage() {
                                 <p className="text-gray-500">completed</p>
                               </div>
                               <div className="text-center">
-                                <p className="text-red-600 font-semibold">
+                                <p className={`font-semibold ${
+                                  memberMetrics.find(m => m.email === member.email)?.tasksOverdue ?? 0 > 0
+                                    ? 'text-red-600'
+                                    : 'text-gray-600'
+                                }`}>
                                   {memberMetrics.find(m => m.email === member.email)?.tasksOverdue || 0}
                                 </p>
                                 <p className="text-gray-500">overdue</p>
+                                {/* Add tooltip or small text to explain that this includes both completed and pending overdue tasks */}
+                                {(memberMetrics.find(m => m.email === member.email)?.tasksOverdue ?? 0) > 0 && (
+                                  <div className="text-xxs text-gray-400 mt-1">
+                                    (includes completed)
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>

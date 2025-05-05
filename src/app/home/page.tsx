@@ -822,9 +822,9 @@ export default function HomePage() {
     }
   };
 
-  // Function to check if a task is overdue
+  // Function to check if a task is overdue (deadline is in the past)
   const isTaskOverdue = (task: Task): boolean => {
-    if (!task.deadline || task.completed) return false;
+    if (!task.deadline) return false;
     
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Set to beginning of day for fair comparison
@@ -835,6 +835,42 @@ export default function HomePage() {
     return deadline < today;
   };
   
+  // New function to determine deadline status for display
+  const getDeadlineStatus = (task: Task): 'overdue' | 'met' | 'upcoming' => {
+    if (!task.deadline) return 'upcoming';
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const deadline = new Date(task.deadline);
+    deadline.setHours(0, 0, 0, 0);
+    
+    const isPastDeadline = deadline < today;
+    
+    if (task.completed) {
+      // If completed, check if it was completed before or after deadline
+      return isPastDeadline ? 'overdue' : 'met';
+    } else {
+      // If not completed, then it's either overdue or upcoming
+      return isPastDeadline ? 'overdue' : 'upcoming';
+    }
+  };
+  
+  // Helper function to get deadline badge color based on status
+  const getDeadlineBadgeStyle = (task: Task) => {
+    const status = getDeadlineStatus(task);
+    
+    switch(status) {
+      case 'overdue':
+        return 'bg-red-100 text-red-700'; // Red for overdue
+      case 'met':
+        return 'bg-green-100 text-green-700'; // Green for meeting deadline
+      case 'upcoming':
+      default:
+        return 'bg-orange-100 text-orange-700'; // Orange for upcoming
+    }
+  };
+
   // Fix the deadline update function
   const handleUpdateDeadline = async () => {
     if (!selectedTask) return;
@@ -1319,9 +1355,7 @@ export default function HomePage() {
                                               {/* Add deadline badge if it exists */}
                                               {task.deadline && (
                                                 <span className={`text-xs font-semibold px-2 py-1 rounded-full truncate max-w-[80px] ml-1 mb-1 ${
-                                                  isTaskOverdue(task)
-                                                    ? 'bg-red-100 text-red-700'
-                                                    : 'bg-orange-100 text-orange-700'
+                                                  getDeadlineBadgeStyle(task)
                                                 }`}>
                                                   {new Date(task.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                                 </span>
@@ -1498,9 +1532,7 @@ export default function HomePage() {
                 </span>
                 {selectedTask.deadline && (
                   <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
-                    isTaskOverdue(selectedTask) 
-                      ? 'text-red-600 bg-red-50' 
-                      : 'text-orange-600 bg-orange-50'
+                    getDeadlineBadgeStyle(selectedTask)
                   }`}>
                     Due: {new Date(selectedTask.deadline).toLocaleDateString('en-US', { 
                       month: 'short', 
@@ -1528,7 +1560,11 @@ export default function HomePage() {
                           {selectedTask.deadline ? (
                             <div className="flex items-center gap-2">
                               <span className={`text-sm font-medium ${
-                                isTaskOverdue(selectedTask) ? 'text-red-600' : 'text-gray-700'
+                                getDeadlineStatus(selectedTask) === 'overdue' 
+                                  ? 'text-red-600' 
+                                  : getDeadlineStatus(selectedTask) === 'met'
+                                    ? 'text-green-600'
+                                    : 'text-gray-700'
                               }`}>
                                 Due: {new Date(selectedTask.deadline).toLocaleDateString('en-US', {
                                   weekday: 'long',
@@ -1537,9 +1573,14 @@ export default function HomePage() {
                                   day: 'numeric'
                                 })}
                               </span>
-                              {isTaskOverdue(selectedTask) && !selectedTask.completed && (
+                              {getDeadlineStatus(selectedTask) === 'overdue' && !selectedTask.completed && (
                                 <span className="bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded-full">
                                   Overdue
+                                </span>
+                              )}
+                              {getDeadlineStatus(selectedTask) === 'met' && (
+                                <span className="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
+                                  Completed on time
                                 </span>
                               )}
                             </div>
@@ -1613,7 +1654,11 @@ export default function HomePage() {
                   <div className="p-4 bg-gray-50 rounded-lg">
                     <div className="flex items-center gap-2">
                       <span className={`text-sm font-medium ${
-                        isTaskOverdue(selectedTask) ? 'text-red-600' : 'text-gray-700'
+                        getDeadlineStatus(selectedTask) === 'overdue' 
+                          ? 'text-red-600' 
+                          : getDeadlineStatus(selectedTask) === 'met'
+                            ? 'text-green-600'
+                            : 'text-gray-700'
                       }`}>
                         Due: {new Date(selectedTask.deadline).toLocaleDateString('en-US', {
                           weekday: 'long',
@@ -1622,9 +1667,14 @@ export default function HomePage() {
                           day: 'numeric'
                         })}
                       </span>
-                      {isTaskOverdue(selectedTask) && !selectedTask.completed && (
+                      {getDeadlineStatus(selectedTask) === 'overdue' && !selectedTask.completed && (
                         <span className="bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded-full">
                           Overdue
+                        </span>
+                      )}
+                      {getDeadlineStatus(selectedTask) === 'met' && (
+                        <span className="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
+                          Completed on time
                         </span>
                       )}
                     </div>
