@@ -26,7 +26,6 @@ import { syncFirebaseUserToBackend } from "../lib/firebase-sync";
 import { useRouter } from "next/navigation";
 import { TaskCreatorAvatar } from '../../components/TaskCreatorAvatar';
 import { UserAvatar } from '../../components/UserAvatar';
-import { API_URL, getApiEndpoint } from "../lib/api-config";
 
 // Generate consistent color based on string (email)
 const stringToColor = (str: string) => {
@@ -212,7 +211,7 @@ export default function HomePage() {
         return;
       }
       setIsLoading(true);
-      const response = await authFetch(`${API_URL}/projects/`);
+      const response = await authFetch("http://localhost:8000/api/projects/");
       if (!response.ok) throw new Error(`Error: ${response.status}`);
       const data = await response.json();
       setProjects(data);
@@ -230,7 +229,7 @@ export default function HomePage() {
     try {
       setIsLoadingColumns(true);
       const response = await authFetch(
-        `${API_URL}/columns/?project_id=${projectId}`
+        `http://localhost:8000/api/columns/?project_id=${projectId}`
       );
       
       if (!response.ok) throw new Error(`Error: ${response.status}`);
@@ -252,7 +251,7 @@ export default function HomePage() {
   const fetchTasks = async (columnId: number) => {
     try {
       const response = await authFetch(
-        `${API_URL}/tasks/?column_id=${columnId}`
+        `http://localhost:8000/api/tasks/?column_id=${columnId}`
       );
       
       if (!response.ok) throw new Error(`Error: ${response.status}`);
@@ -279,7 +278,7 @@ export default function HomePage() {
   const handleAddProject = async () => {
     if (!newProjectName.trim()) return;
     try {
-      const res = await authFetch(`${API_URL}/projects/`, {
+      const res = await authFetch("http://localhost:8000/api/projects/", {
         method: "POST",
         body: JSON.stringify({ name: newProjectName }),
       });
@@ -300,7 +299,7 @@ export default function HomePage() {
   const handleDeleteProject = async (id: number) => {
     try {
       const res = await authFetch(
-        `${API_URL}/projects/${id}/`,
+        `http://localhost:8000/api/projects/${id}/`,
         { method: "DELETE" }
       );
       if (res.ok) {
@@ -324,7 +323,7 @@ export default function HomePage() {
       console.log(`Current user: ${auth.currentUser?.uid}`);
 
       const res = await authFetch(
-        `${API_URL}/projects/${id}/`,
+        `http://localhost:8000/api/projects/${id}/`,
         {
           method: "PUT",
           body: JSON.stringify({ name: editingProjectName }),
@@ -369,7 +368,7 @@ export default function HomePage() {
         ? Math.max(...columns.map(col => col.order)) 
         : -1;
         
-      const res = await authFetch(`${API_URL}/columns/`, {
+      const res = await authFetch("http://localhost:8000/api/columns/", {
         method: "POST",
         body: JSON.stringify({ 
           name: newColumnName.trim(),
@@ -394,7 +393,7 @@ export default function HomePage() {
   const handleDeleteColumn = async (columnId: number) => {
     try {
       const res = await authFetch(
-        `${API_URL}/columns/${columnId}/`,
+        `http://localhost:8000/api/columns/${columnId}/`,
         { method: "DELETE" }
       );
       
@@ -423,7 +422,7 @@ export default function HomePage() {
     
     try {
       const res = await authFetch(
-        `${API_URL}/columns/${columnId}/`,
+        `http://localhost:8000/api/columns/${columnId}/`,
         {
           method: "PUT",
           body: JSON.stringify({
@@ -463,7 +462,7 @@ export default function HomePage() {
         ? Math.max(...columnTasks.map(task => task.order))
         : -1;
         
-      const res = await authFetch(`${API_URL}/tasks/`, {
+      const res = await authFetch("http://localhost:8000/api/tasks/", {
         method: "POST",
         body: JSON.stringify({
           title: newTaskTitle.trim(),
@@ -495,7 +494,7 @@ export default function HomePage() {
   const handleDeleteTask = async (taskId: number, columnId: number) => {
     try {
       const res = await authFetch(
-        `${API_URL}/tasks/${taskId}/`,
+        `http://localhost:8000/api/tasks/${taskId}/`,
         { method: "DELETE" }
       );
       
@@ -528,7 +527,7 @@ export default function HomePage() {
       }
       
       const res = await authFetch(
-        `${API_URL}/tasks/${task.id}/`,
+        `http://localhost:8000/api/tasks/${task.id}/`,
         {
           method: "PUT",
           body: JSON.stringify(requestBody)
@@ -568,7 +567,7 @@ export default function HomePage() {
     setIsSearching(true);
     try {
       const res = await fetch(
-        `${API_URL}/firebase-users/?email=${encodeURIComponent(userSearchEmail.trim())}`
+        `http://localhost:8000/api/firebase-users/?email=${encodeURIComponent(userSearchEmail.trim())}`
       );      
       if (!res.ok) throw new Error(await res.text());
       const users = await res.json();
@@ -590,7 +589,7 @@ export default function HomePage() {
     ];
     try {
       const res = await authFetch(
-        `${API_URL}/projects/${selectedProject.id}/`,
+        `http://localhost:8000/api/projects/${selectedProject.id}/`,
         {
           method: "PATCH",
           body: JSON.stringify({ members: newMembers }),
@@ -620,7 +619,7 @@ export default function HomePage() {
     
     try {
       const res = await authFetch(
-        `${API_URL}/projects/${selectedProject.id}/`,
+        `http://localhost:8000/api/projects/${selectedProject.id}/`,
         {
           method: "PATCH",
           body: JSON.stringify({ members: newMembers }),
@@ -851,7 +850,7 @@ export default function HomePage() {
       
       // Вызов API для обновления задачи
       const response = await authFetch(
-        `${API_URL}/tasks/${taskId}/`,
+        `http://localhost:8000/api/tasks/${taskId}/`,
         {
           method: "PUT",
           body: JSON.stringify(updatedTaskData)
